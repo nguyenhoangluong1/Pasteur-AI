@@ -1,0 +1,61 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.conversations (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  patient_id uuid NOT NULL,
+  title character varying,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT conversations_pkey PRIMARY KEY (id),
+  CONSTRAINT conversations_patient_id_fkey FOREIGN KEY (patient_id) REFERENCES public.patients(id)
+);
+CREATE TABLE public.medical_records (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  patient_id uuid NOT NULL,
+  record_type character varying,
+  content jsonb NOT NULL,
+  recorded_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT medical_records_pkey PRIMARY KEY (id),
+  CONSTRAINT medical_records_patient_id_fkey FOREIGN KEY (patient_id) REFERENCES public.patients(id)
+);
+CREATE TABLE public.messages (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  conversation_id uuid NOT NULL,
+  role USER-DEFINED NOT NULL,
+  content text NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT messages_pkey PRIMARY KEY (id),
+  CONSTRAINT messages_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id)
+);
+CREATE TABLE public.patient_medical_config (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  patient_id uuid NOT NULL,
+  facility_name character varying,
+  medical_summary text,
+  chronic_conditions jsonb,
+  current_medications jsonb,
+  restrictions text,
+  language character varying DEFAULT 'vi'::character varying,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT patient_medical_config_pkey PRIMARY KEY (id),
+  CONSTRAINT patient_medical_config_patient_id_fkey FOREIGN KEY (patient_id) REFERENCES public.patients(id)
+);
+CREATE TABLE public.patients (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  full_name character varying,
+  medical_summary text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT patients_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.rag_chunks (
+  chunk_id text NOT NULL,
+  patient_id uuid NOT NULL,
+  source_type text NOT NULL,
+  content text NOT NULL,
+  embedding USER-DEFINED NOT NULL,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT rag_chunks_pkey PRIMARY KEY (chunk_id)
+);

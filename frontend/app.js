@@ -1,7 +1,7 @@
 /** API base:
- * - Khi mo qua uvicorn /app -> cung origin (/api).
- * - Khi mo bang static server frontend:8080 -> goi backend 127.0.0.1:8000.
- * - Co the override bang window.__API_BASE__ neu can.
+ * - Served via uvicorn /app -> same origin (/api).
+ * - Static frontend on :8080 -> backend http://127.0.0.1:8000/api.
+ * - Override with window.__API_BASE__ if needed.
  */
 function resolveApiBase() {
   if (typeof window.__API_BASE__ === "string" && window.__API_BASE__.trim()) {
@@ -23,8 +23,8 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase();
 
-/** Trạng thái tĩnh khi không tải / không lỗi (gọn, không lặp hướng dẫn bệnh nhân). */
-const STATUS_IDLE = "Sẵn sàng";
+/** Idle status when not loading / no error. */
+const STATUS_IDLE = "Ready";
 
 const state = {
   patientId: null,
@@ -33,8 +33,7 @@ const state = {
   conversations: [],
 };
 
-// Các phần dưới đây chỉ dành cho UI chat có form/selector riêng.
-// Hiện tại landing page đang dùng layout khác, nên không khởi tạo nếu không tìm thấy phần tử.
+// Chat UI with separate form/selector — skip init if elements are missing.
 const patientSelect = document.getElementById("patient-select");
 const messagesEl = document.getElementById("messages");
 const welcomeScreen = document.getElementById("welcomeScreen");
@@ -70,11 +69,11 @@ function setSending(v) {
   state.sending = v;
   if (sendBtn) sendBtn.disabled = v;
   if (statusText) {
-    statusText.textContent = v ? "Đang soạn trả lời…" : STATUS_IDLE;
+    statusText.textContent = v ? "Composing reply…" : STATUS_IDLE;
   }
 }
 
-/** Van ban thuan cho TTS (bo markdown **). */
+/** Plain text for TTS (strip markdown **). */
 function stripForTts(raw) {
   return (raw ?? "")
     .toString()
@@ -89,7 +88,7 @@ async function playTtsForText(text, buttonEl) {
   if (buttonEl) {
     buttonEl.disabled = true;
   }
-  if (statusText) statusText.textContent = "Đang tạo giọng đọc…";
+  if (statusText) statusText.textContent = "Generating speech…";
   try {
     const voice =
       (document.getElementById("tts-voice-select") || {}).value || null;
@@ -108,7 +107,7 @@ async function playTtsForText(text, buttonEl) {
     }
   } catch (e) {
     console.error(e);
-    if (statusText) statusText.textContent = "Không phát được TTS.";
+    if (statusText) statusText.textContent = "Could not play TTS.";
   } finally {
     if (buttonEl) buttonEl.disabled = false;
     if (statusText) statusText.textContent = STATUS_IDLE;
@@ -145,12 +144,12 @@ function appendMessage(role, content, createdAt) {
   meta.className = "message-meta";
   const roleSpan = document.createElement("span");
   roleSpan.className = "message-role";
-  roleSpan.textContent = normRole === "user" ? "Bạn" : "Pasteur AI";
+  roleSpan.textContent = normRole === "user" ? "You" : "Pasteur AI";
   meta.appendChild(roleSpan);
   if (createdAt) {
     const timeSpan = document.createElement("span");
     const dt = new Date(createdAt);
-    timeSpan.textContent = dt.toLocaleTimeString("vi-VN", {
+    timeSpan.textContent = dt.toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",
     });
@@ -170,9 +169,9 @@ function appendMessage(role, content, createdAt) {
     const ttsBtn = document.createElement("button");
     ttsBtn.type = "button";
     ttsBtn.className = "msg-tts-btn";
-    ttsBtn.title = "Đọc bằng giọng nói (TTS)";
+    ttsBtn.title = "Read aloud (TTS)";
     ttsBtn.innerHTML =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg><span>Đọc</span>';
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg><span>Listen</span>';
     ttsBtn.addEventListener("click", () => playTtsForText(content, ttsBtn));
     ttsRow.appendChild(ttsBtn);
     row.appendChild(ttsRow);
@@ -180,6 +179,35 @@ function appendMessage(role, content, createdAt) {
 
   messagesEl.appendChild(row);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+/** Same structure/CSS as the inline typing row in index — must appear after the user bubble. */
+function createTypingIndicator() {
+  const row = document.createElement("div");
+  row.className = "typing-row";
+  const lbl = document.createElement("div");
+  lbl.className = "typing-label";
+  lbl.textContent = "Pasteur AI";
+  const inner = document.createElement("div");
+  inner.className = "typing-inner";
+  const lw = document.createElement("div");
+  lw.className = "typing-logo-wrap";
+  const img = document.createElement("img");
+  img.src = "assets/logo.svg";
+  img.alt = "Pasteur AI Logo";
+  lw.appendChild(img);
+  const dots = document.createElement("div");
+  dots.className = "dots";
+  for (let i = 0; i < 3; i++) {
+    const d = document.createElement("div");
+    d.className = "dot";
+    dots.appendChild(d);
+  }
+  inner.appendChild(lw);
+  inner.appendChild(dots);
+  row.appendChild(lbl);
+  row.appendChild(inner);
+  return row;
 }
 
 function renderConversationList(conversations) {
@@ -194,7 +222,7 @@ function renderConversationList(conversations) {
     const label =
       c.title && c.title.trim()
         ? c.title
-        : "Cuộc trò chuyện " + c.id.slice(0, 8);
+        : "Conversation " + c.id.slice(0, 8);
     item.textContent = label;
     item.onclick = async () => {
       if (state.conversationId === c.id) return;
@@ -237,7 +265,7 @@ async function loadPatients() {
   if (!list.length) {
     const opt = document.createElement("option");
     opt.value = "";
-    opt.textContent = "Chưa có bệnh nhân (tạo trong backend)";
+    opt.textContent = "No patients yet (create in backend)";
     opt.disabled = true;
     opt.selected = true;
     patientSelect.appendChild(opt);
@@ -247,7 +275,7 @@ async function loadPatients() {
 
   const placeholder = document.createElement("option");
   placeholder.value = "";
-  placeholder.textContent = "Chọn bệnh nhân";
+  placeholder.textContent = "Select patient";
   placeholder.disabled = true;
   placeholder.selected = true;
   patientSelect.appendChild(placeholder);
@@ -255,7 +283,7 @@ async function loadPatients() {
   for (const p of list) {
     const opt = document.createElement("option");
     opt.value = p.id;
-    opt.textContent = p.full_name || "Bệnh nhân " + p.id.slice(0, 5);
+    opt.textContent = p.full_name || "Patient " + p.id.slice(0, 5);
     patientSelect.appendChild(opt);
   }
 
@@ -293,20 +321,26 @@ window.chatResetConversation = function () {
   renderConversationList(state.conversations);
 };
 
-// Gửi message xuống backend (đặt tên khác để không đụng với sendMessage() trong index.html)
+// Send message to backend (named separately from sendMessage() in index.html)
 async function backendSendMessage(rawText) {
   const text = (rawText ?? "").toString().trim();
   if (!text) return;
    if (!state.patientId) {
     if (statusText) {
-      statusText.textContent = "Chưa chọn bệnh nhân";
+      statusText.textContent = "No patient selected";
     }
     return;
   }
   setSending(true);
   const currentPatientId = state.patientId;
   const currentConvId = state.conversationId;
+  let typingEl = null;
   if (messagesEl) appendMessage("user", text);
+  if (messagesEl) {
+    typingEl = createTypingIndicator();
+    messagesEl.appendChild(typingEl);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
   try {
     const res = await api("/chat", {
       method: "POST",
@@ -316,6 +350,8 @@ async function backendSendMessage(rawText) {
         message: text,
       }),
     });
+    if (typingEl?.parentNode) typingEl.remove();
+    typingEl = null;
     if (state.patientId !== currentPatientId) return;
     state.conversationId = res.conversation_id;
     if (Array.isArray(res.conversations)) {
@@ -335,13 +371,16 @@ async function backendSendMessage(rawText) {
     renderConversation(res.messages || []);
   } catch (err) {
     console.error(err);
+    if (typingEl?.parentNode) typingEl.remove();
+    typingEl = null;
     if (messagesEl && state.patientId === currentPatientId) {
       appendMessage(
         "assistant",
-        "Xin lỗi, đã có lỗi khi gọi Gemini. Vui lòng thử lại sau."
+        "Sorry, something went wrong calling Gemini. Please try again later."
       );
     }
   } finally {
+    if (typingEl?.parentNode) typingEl.remove();
     setSending(false);
   }
 }
@@ -425,26 +464,26 @@ if (patientSelect) {
       if (!window.isSecureContext && !/^localhost$|^127\./.test(location.hostname)) {
         if (statusText) {
           statusText.textContent =
-            "Mic/STT cần HTTPS hoặc localhost — mở qua http://127.0.0.1:8000/static/...";
+            "Mic/STT needs HTTPS or localhost — open via http://127.0.0.1:8000/static/...";
         }
       }
     } catch (err) {
       console.error(err);
       if (statusText) {
-        statusText.textContent = "Không kết nối được API backend.";
+        statusText.textContent = "Could not reach the API backend.";
       }
     }
   })();
 }
 
-// —— STT/TTS: ghi âm -> POST /api/chat/audio ——
+// —— STT/TTS: recording -> POST /api/chat/audio ——
 let voiceRecorder = null;
 let voiceChunks = [];
 let voiceStream = null;
 
 async function backendSendAudio(blob) {
   if (!state.patientId) {
-    if (statusText) statusText.textContent = "Chưa chọn bệnh nhân";
+    if (statusText) statusText.textContent = "No patient selected";
     return;
   }
   const welcome = document.getElementById("welcomeScreen");
@@ -463,7 +502,7 @@ async function backendSendAudio(blob) {
     fd.append("tts_voice", voiceSel.value);
   }
   if (!blob || blob.size < 16) {
-    if (statusText) statusText.textContent = "Bản ghi quá ngắn, hãy nói lâu hơn một chút.";
+    if (statusText) statusText.textContent = "Recording too short — speak a bit longer.";
     setSending(false);
     return;
   }
@@ -496,7 +535,7 @@ async function backendSendAudio(blob) {
     if (messagesEl) {
       appendMessage(
         "assistant",
-        "Không xử lý được ghi âm (STT/TTS). Kiểm tra microphone, HTTPS/localhost, và API backend."
+        "Could not process voice input (STT/TTS). Check microphone, HTTPS/localhost, and the API backend."
       );
     }
   } finally {
@@ -512,13 +551,13 @@ async function toggleVoiceRecord() {
     return;
   }
   if (!state.patientId) {
-    if (statusText) statusText.textContent = "Chưa chọn bệnh nhân";
+    if (statusText) statusText.textContent = "No patient selected";
     return;
   }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     if (statusText) {
       statusText.textContent =
-        "Không truy cập được microphone (cần HTTPS hoặc localhost, không mở file://).";
+        "Microphone unavailable (use HTTPS or localhost, not file://).";
     }
     return;
   }
@@ -549,14 +588,14 @@ async function toggleVoiceRecord() {
     };
     voiceRecorder.start(250);
     if (micBtn) micBtn.classList.add("recording");
-    if (statusText) statusText.textContent = "Đang ghi… nhấn mic lần nữa để gửi.";
+    if (statusText) statusText.textContent = "Recording… tap the mic again to send.";
   } catch (e) {
     console.error(e);
-    if (statusText) statusText.textContent = "Không mở được microphone.";
+    if (statusText) statusText.textContent = "Could not open microphone.";
   }
 }
 
-// Gan su kien sau khi script load (tranh loi onclick inline khong thay ham global)
+// Bind after load (inline onclick may not see globals)
 const micBtnEl = document.getElementById("micBtn");
 if (micBtnEl) {
   micBtnEl.addEventListener("click", () => {

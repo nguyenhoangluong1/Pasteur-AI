@@ -4,298 +4,28 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Pasteur AI — Medical Intelligence</title>
-<link rel="icon" type="image/svg+xml" href="logo.svg"/>
-<link rel="shortcut icon" href="logo.svg"/>
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg"/>
+<link rel="shortcut icon" href="assets/logo.svg"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
-<style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --font-sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-  /* Accent tím Pasteur — dùng có chừng như Claude */
-  --accent:#6D4BD4;--accent-h:#5A3AB8;--accent-light:#9481D0;
-  --accent-soft:rgba(109,75,212,.1);--accent-softer:#F3F1FA;
-  --text:#18181B;--text2:#52525B;--text3:#A1A1AA;
-  --bg:#FAFAF9;--surface:#FFFFFF;--sidebar:#F4F4F5;
-  --border:#E4E4E7;--border-subtle:rgba(24,24,27,.06);
-  --msg-ai:#F4F4F5;--msg-user:#3F3F46;
-  --radius:18px;--radius-sm:10px;
-  --sidebar-w:252px;--topbar-h:48px;
-  --content-padx:clamp(20px,5vw,56px);
-  --chat-max:min(720px,100%);
-  --shadow-sm:0 1px 2px rgba(0,0,0,.04);
-  --shadow-composer:0 2px 14px rgba(0,0,0,.06);
-}
-html{font-family:var(--font-sans);font-size:15px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
-body{font-family:inherit;background:var(--bg);color:var(--text);height:100vh;display:flex;overflow:hidden;font-size:1rem}
-button,input,textarea,select{font-family:inherit}
-body.dark{
-  --bg:#141414;--surface:#1C1C1E;--sidebar:#1A1A1C;--border:#2A2A2E;
-  --text:#FAFAFA;--text2:#A1A1AA;--text3:#71717A;
-  --msg-ai:#252528;--msg-user:#3F3F3A;
-  --accent-soft:rgba(167,139,250,.14);--accent-softer:#1E1D22;
-  --border-subtle:rgba(255,255,255,.08);
-  --shadow-sm:0 1px 2px rgba(0,0,0,.2);
-  --shadow-composer:0 2px 20px rgba(0,0,0,.35);
-}
-
-/* SIDEBAR — tông trung tính, phân tách nhẹ */
-.sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);flex-shrink:0;background:var(--sidebar);border-right:1px solid var(--border-subtle);display:flex;flex-direction:column;padding:14px 12px 16px;gap:8px;transition:flex-basis .24s ease, min-width .24s ease, width .24s ease, opacity .2s ease, padding .24s ease, border-color .2s}
-.sidebar-header{display:flex;align-items:center;gap:10px;padding:0 0 14px;margin-bottom:2px;border-bottom:1px solid var(--border-subtle)}
-.sidebar-logo{display:flex;align-items:center;gap:8px;min-width:0;flex:1;padding-top:2px}
-.logo-icon{width:28px;height:28px;flex-shrink:0}
-.logo-icon img{width:100%;height:100%;object-fit:contain;display:block}
-.logo-icon svg{animation:idlePulse 4s ease-in-out infinite}
-.logo-wordmark{font-size:15px;font-weight:600;color:var(--text);letter-spacing:-.02em;font-family:var(--font-sans)}
-@keyframes idlePulse{
-  0%,100%{opacity:1;transform:scale(1)}
-  50%{opacity:.94;transform:scale(0.98)}
-}
-.btn-new{display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 14px;background:var(--text);color:var(--surface);border:none;border-radius:var(--radius-sm);cursor:pointer;font-size:13px;font-weight:600;letter-spacing:-.01em;transition:background .18s,opacity .12s;width:100%;box-shadow:var(--shadow-sm)}
-.btn-new:hover{background:#27272A;opacity:.96}
-body.dark .btn-new{background:#E4E4E7;color:#18181B}
-body.dark .btn-new:hover{background:#D4D4D8}
-.btn-new svg{width:15px;height:15px;flex-shrink:0}
-.conv-label{font-size:12px;font-weight:500;color:var(--text3);letter-spacing:0;padding:12px 6px 6px}
-.conv-list{display:flex;flex-direction:column;gap:1px;flex:1;min-height:0;overflow-y:auto}
-.conv-item{padding:9px 11px;border-radius:var(--radius-sm);cursor:pointer;font-size:13px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .15s,color .15s}
-.conv-item:hover{background:rgba(0,0,0,.04);color:var(--text)}
-body.dark .conv-item:hover{background:rgba(255,255,255,.06);color:var(--text)}
-.conv-item.active{background:var(--accent-soft);color:var(--accent);font-weight:500}
-.sidebar-settings{margin:6px 0 0;padding:12px 0 0;border-top:1px solid var(--border-subtle);border-radius:0;background:transparent;display:flex;flex-direction:column;gap:8px}
-.sidebar-settings-title{font-size:12px;font-weight:500;color:var(--text3);letter-spacing:0;margin-bottom:0}
-.sidebar-setting-label{font-size:11px;font-weight:500;color:var(--text3)}
-.settings-select{width:100%;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface);font-size:12px;color:var(--text2);padding:8px 10px;outline:none;cursor:pointer;transition:border-color .15s,box-shadow .15s}
-.settings-select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-.sidebar-footer{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-subtle);display:flex;justify-content:space-between;gap:8px}
-.sidebar-icon-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 10px;border-radius:999px;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:12px;font-weight:500;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
-.sidebar-icon-btn svg{width:14px;height:14px}
-.sidebar-icon-btn:hover{background:rgba(0,0,0,.04);border-color:var(--border);color:var(--text)}
-body.dark .sidebar-icon-btn:hover{background:rgba(255,255,255,.06);color:var(--text)}
-.sidebar-icon-btn.secondary{flex:0 0 36px;padding:8px;border-radius:999px}
-
-/* Nút đóng sidebar — cùng ngôn ngữ với nút mở: nhỏ, góc trái header */
-.sidebar-collapse-btn{
-  flex-shrink:0;
-  width:26px;
-  height:26px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  padding:0;
-  border-radius:8px;
-  border:1px solid var(--border);
-  background:var(--surface);
-  color:var(--text2);
-  cursor:pointer;
-  box-shadow:var(--shadow-sm);
-  transition:transform .12s,background .12s,border-color .12s,color .12s;
-}
-.sidebar-collapse-btn:hover{background:rgba(0,0,0,.04);border-color:var(--border);color:var(--text);transform:scale(1.02)}
-body.dark .sidebar-collapse-btn{background:var(--surface)}
-body.dark .sidebar-collapse-btn:hover{background:rgba(255,255,255,.08)}
-.sidebar-collapse-btn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
-
-/* Nút nổi mở lại panel — góc trên trái, kích thước nhỏ gọn */
-.sidebar-fab-open{
-  display:none;
-  position:fixed;
-  z-index:250;
-  top:max(8px,env(safe-area-inset-top,0px));
-  left:max(8px,env(safe-area-inset-left,0px));
-  width:26px;
-  height:26px;
-  align-items:center;
-  justify-content:center;
-  border-radius:8px;
-  border:1px solid var(--border);
-  background:var(--surface);
-  color:var(--text2);
-  cursor:pointer;
-  box-shadow:var(--shadow-sm);
-  transition:transform .12s,background .12s,border-color .12s,color .12s;
-}
-.sidebar-fab-open:hover{background:rgba(0,0,0,.04);border-color:var(--border);color:var(--text);transform:scale(1.02)}
-body.dark .sidebar-fab-open{background:var(--surface)}
-body.dark .sidebar-fab-open:hover{background:rgba(255,255,255,.08)}
-.sidebar-fab-open svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-@media(min-width:721px){
-  body.conv-panel-collapsed .sidebar-fab-open{display:flex}
-}
-@media(max-width:720px){
-  body:not(.conv-drawer-open) .sidebar-fab-open{display:flex}
-}
-
-/* MAIN */
-.sidebar-backdrop{display:none;position:fixed;inset:0;z-index:190;background:rgba(0,0,0,.32);backdrop-filter:blur(4px)}
-.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;background:var(--bg)}
-.topbar{min-height:var(--topbar-h);padding:0 var(--content-padx);border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;gap:12px;flex-shrink:0;background:var(--bg);position:relative;z-index:1}
-.topbar-brand{display:flex;align-items:center;gap:9px;min-width:0;margin-left:2px}
-.topbar-logo{width:26px;height:26px;flex-shrink:0}
-.topbar-logo img{width:100%;height:100%;object-fit:contain;display:block}
-.topbar-title{font-size:16px;font-weight:600;color:var(--text);letter-spacing:-.02em;font-family:var(--font-sans)}
-.topbar-badge{font-size:11px;font-weight:500;color:var(--text3);background:var(--msg-ai);padding:4px 11px;border-radius:999px;letter-spacing:0;flex-shrink:0;border:1px solid var(--border-subtle)}
-body.dark .topbar-badge{background:var(--sidebar);color:var(--text2)}
-.topbar-right{margin-left:auto;display:flex;align-items:center;justify-content:flex-end;min-width:0}
-.topbar-status{font-size:12px;color:var(--text3);text-align:right;max-width:min(280px,42vw);line-height:1.4;font-weight:400;letter-spacing:0}
-.theme-toggle-moon{display:none}
-body.dark .theme-toggle-sun{display:none}
-body.dark .theme-toggle-moon{display:inline}
-
-/* MESSAGES — bubble đều góc như Claude */
-.messages{flex:1;overflow-y:auto;padding:28px var(--content-padx) 32px;display:flex;flex-direction:column;gap:24px;scroll-behavior:smooth;align-items:center}
-.messages > *{width:100%;max-width:var(--chat-max)}
-.msg-row{display:flex;flex-direction:column;gap:5px;width:100%}
-.msg-row.user{align-items:flex-end}
-.msg-row.ai{align-items:flex-start}
-.msg-label{font-size:11px;font-weight:500;color:var(--text3);padding:0 6px;letter-spacing:0}
-.msg-bubble{padding:14px 18px;border-radius:var(--radius);line-height:1.65;font-size:14.5px;max-width:var(--chat-max)}
-.msg-row.ai .msg-bubble{background:var(--msg-ai);color:var(--text);border:1px solid var(--border-subtle)}
-.msg-row.user .msg-bubble{background:var(--msg-user);color:#FAFAFA;border:1px solid transparent}
-.msg-row.user .msg-bubble strong{color:#FFF;font-weight:600}
-
-/* Backend-rendered messages (app.js) – reuse same look */
-.message-row{display:flex;flex-direction:column;gap:5px;width:100%}
-.message-row.user{align-items:flex-end}
-.message-row.assistant{align-items:flex-start}
-.message-bubble{padding:14px 18px;border-radius:var(--radius);line-height:1.65;font-size:14.5px;max-width:var(--chat-max);background:var(--msg-ai);color:var(--text);border:1px solid var(--border-subtle)}
-.message-bubble p{margin-bottom:8px}
-.message-bubble p:last-child{margin-bottom:0}
-.message-bubble strong{font-weight:600;color:var(--text)}
-.message-row.user .message-bubble,.message-row.user .message-bubble strong{color:#FAFAFA}
-.message-row.user .message-bubble{background:var(--msg-user);color:#FAFAFA;border-color:transparent}
-.message-row.assistant .message-bubble{background:var(--msg-ai)}
-.message-meta{display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:12px;color:var(--text3);letter-spacing:.03em}
-.message-role{font-weight:600}
-
-/* TTS under assistant bubbles (app.js) */
-.message-tts-row{display:flex;justify-content:flex-start;padding:0 4px;margin-top:6px;margin-left:2px}
-.msg-tts-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text2);font-size:12px;font-weight:500;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
-.msg-tts-btn:hover{background:var(--msg-ai);color:var(--text)}
-.msg-tts-btn svg{width:14px;height:14px;flex-shrink:0;stroke:currentColor}
-.msg-tts-btn:disabled{opacity:.55;cursor:wait}
-
-/* Message hover actions */
-.msg-actions{display:flex;align-items:center;gap:4px;opacity:0;transition:opacity .18s;padding:0 2px}
-.msg-row:hover .msg-actions{opacity:1}
-.msg-action-btn{position:relative;display:flex;align-items:center;gap:4px;background:none;border:none;cursor:pointer;font-size:12px;color:var(--text3);padding:3px 7px;border-radius:4px;transition:background .12s,color .12s}
-.msg-action-btn:hover{background:var(--msg-ai);color:var(--text)}
-.msg-action-btn svg{width:13px;height:13px}
-.action-tooltip{position:absolute;bottom:calc(100%+5px);left:50%;transform:translateX(-50%);background:var(--text);color:var(--surface);font-size:11px;padding:4px 8px;border-radius:6px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .15s;font-family:var(--font-sans);box-shadow:var(--shadow-sm)}
-.msg-action-btn:hover .action-tooltip{opacity:1}
-
-/* TYPING — animated logo petals */
-.typing-row{display:flex;flex-direction:column;align-items:flex-start;gap:5px;width:100%}
-.typing-label{font-size:12px;font-weight:600;color:var(--text3);padding:0 4px;letter-spacing:.03em}
-.typing-inner{display:flex;align-items:center;gap:10px;padding:14px 18px;background:var(--msg-ai);border-radius:var(--radius);border:1px solid var(--border-subtle)}
-.typing-logo-wrap{width:26px;height:26px;flex-shrink:0}
-.typing-logo-wrap svg{width:100%;height:100%;transform-origin:center center;animation:petalFloat 2s ease-in-out infinite}
-@keyframes petalFloat{
-  0%,100%{transform:translateY(0) scale(1);opacity:1}
-  50%{transform:translateY(-2px) scale(1.02);opacity:.9}
-}
-.dots{display:flex;gap:5px;align-items:center}
-.dot{width:5px;height:5px;border-radius:50%;background:var(--text3);opacity:.45;animation:dotBounce 1.2s ease-in-out infinite}
-.dot:nth-child(2){animation-delay:.16s}
-.dot:nth-child(3){animation-delay:.32s}
-@keyframes dotBounce{0%,80%,100%{transform:translateY(0);opacity:.4}40%{transform:translateY(-7px);opacity:1}}
-
-/* INPUT — composer nổi nhẹ kiểu Claude */
-.input-area{padding:16px var(--content-padx) 20px;border-top:1px solid var(--border-subtle);background:var(--bg);display:flex;flex-direction:column;align-items:center}
-.input-area .input-wrap{max-width:var(--chat-max);width:100%}
-.input-wrap{display:flex;align-items:flex-end;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px 10px 16px;transition:border-color .2s,box-shadow .2s;box-shadow:var(--shadow-sm)}
-.input-wrap:focus-within{border-color:var(--text3);box-shadow:var(--shadow-composer)}
-body.dark .input-wrap:focus-within{border-color:var(--text3)}
-.input-field{flex:1;border:none;outline:none;background:transparent;font-size:14.5px;color:var(--text);resize:none;min-height:22px;max-height:160px;line-height:1.5}
-.input-field::placeholder{color:var(--text3)}
-.btn-send{width:36px;height:36px;border-radius:12px;background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .16s,transform .12s,opacity .12s;flex-shrink:0}
-.btn-send:hover{background:var(--accent-h);transform:scale(1.03)}
-.btn-send:disabled{background:var(--border);cursor:not-allowed;transform:none;opacity:.65}
-.btn-send svg{width:15px;height:15px;stroke:#fff}
-.btn-mic{width:36px;height:36px;border-radius:12px;background:transparent;border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .16s,border-color .16s}
-.btn-mic:hover{background:var(--msg-ai);border-color:var(--text3)}
-.btn-mic svg{width:17px;height:17px;stroke:var(--text2)}
-.btn-mic.recording{border-color:#EF4444;background:#FEF2F2;animation:pulseRec .9s ease-in-out infinite}
-@keyframes pulseRec{0%,100%{opacity:1}50%{opacity:.65}}
-.disclaimer{text-align:center;font-size:11px;color:var(--text3);margin-top:10px;line-height:1.5;max-width:var(--chat-max);width:100%;opacity:.85}
-
-/* WELCOME */
-.welcome{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:32px var(--content-padx);text-align:center}
-.welcome-logo{width:52px;height:52px;animation:idlePulse 5s ease-in-out infinite}
-.welcome-logo img{width:100%;height:100%;object-fit:contain;display:block}
-.welcome h1{font-size:clamp(22px,4.2vw,28px);font-weight:600;color:var(--text);max-width:var(--chat-max);font-family:var(--font-sans);letter-spacing:-.03em;line-height:1.25}
-.welcome p{font-size:15px;color:var(--text2);max-width:440px;line-height:1.6;font-weight:400}
-.welcome-chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:4px;max-width:var(--chat-max)}
-.chip{padding:9px 15px;border:1px solid var(--border);border-radius:999px;font-size:13px;color:var(--text2);cursor:pointer;transition:background .15s,border-color .15s,color .15s,box-shadow .15s;background:var(--surface);box-shadow:var(--shadow-sm)}
-.chip:hover{border-color:var(--border);background:var(--msg-ai);color:var(--text);box-shadow:none}
-
-/* Desktop: ẩn panel hội thoại */
-@media(min-width:721px){
-  body.conv-panel-collapsed .sidebar{
-    width:0 !important;
-    min-width:0 !important;
-    max-width:0 !important;
-    padding-left:0 !important;
-    padding-right:0 !important;
-    border-right-width:0 !important;
-    overflow:hidden !important;
-    opacity:0 !important;
-    pointer-events:none !important;
-  }
-  body:not(.conv-panel-collapsed) .topbar-brand{
-    display:none;
-  }
-  /* Tránh chồng lên nút mở sidebar (góc trái) */
-  body.conv-panel-collapsed .topbar{
-    padding-left:max(44px,var(--content-padx));
-  }
-}
-
-/* Mobile / hẹp: drawer + backdrop */
-@media(max-width:720px){
-  .sidebar{
-    position:fixed;
-    top:0;
-    left:0;
-    bottom:0;
-    z-index:200;
-    width:min(var(--sidebar-w),min(288px,88vw)) !important;
-    min-width:unset !important;
-    max-width:min(288px,88vw);
-    transform:translateX(-105%);
-    box-shadow:8px 0 40px rgba(0,0,0,.08);
-    transition:transform .26s cubic-bezier(.22,1,.36,1),box-shadow .26s;
-  }
-  body.conv-drawer-open .sidebar{transform:translateX(0)}
-  body.conv-drawer-open .sidebar-backdrop{display:block}
-  body.conv-drawer-open .topbar-brand{display:none}
-  body:not(.conv-drawer-open) .topbar{
-    padding-left:max(44px,var(--content-padx));
-  }
-  .topbar-status{max-width:42vw;font-size:11px}
-}
-
-::-webkit-scrollbar{width:4px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
-</style>
+<link rel="stylesheet" href="styles.css"/>
 </head>
 <body>
 
 <div class="sidebar-backdrop" id="sidebarBackdrop" aria-hidden="true"></div>
 
-<button type="button" class="sidebar-fab-open" id="sidebarFabOpen" aria-controls="conversationPanel" title="Mở sidebar" aria-label="Mở sidebar hội thoại">
+<button type="button" class="sidebar-fab-open" id="sidebarFabOpen" aria-controls="conversationPanel" title="Open sidebar" aria-label="Open conversation sidebar">
   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h11"/></svg>
 </button>
 
-<aside class="sidebar" id="conversationPanel" aria-label="Danh sách hội thoại">
+<aside class="sidebar" id="conversationPanel" aria-label="Conversation list">
   <div class="sidebar-header">
-    <button type="button" class="sidebar-collapse-btn" id="sidebarCollapseBtn" title="Đóng sidebar" aria-label="Đóng sidebar hội thoại">
+    <button type="button" class="sidebar-collapse-btn" id="sidebarCollapseBtn" title="Close sidebar" aria-label="Close conversation sidebar">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
     </button>
     <div class="sidebar-logo">
       <div class="logo-icon">
-        <img src="logo.svg" alt="Pasteur AI Logo">
+        <img src="assets/logo.svg" alt="Pasteur AI Logo">
       </div>
       <span class="logo-wordmark">Pasteur AI</span>
     </div>
@@ -306,23 +36,23 @@ body.dark .input-wrap:focus-within{border-color:var(--text3)}
   </button>
   <div class="conv-label">Recent</div>
   <div class="conv-list" id="convList"></div>
-  <div class="sidebar-settings" id="sidebarSettings" aria-label="Cài đặt">
-    <div class="sidebar-settings-title">Cài đặt</div>
-    <label class="sidebar-setting-label" for="patient-select">Bệnh nhân</label>
-    <select id="patient-select" class="settings-select" title="Chọn bệnh nhân">
-      <option value="" disabled selected>Đang tải…</option>
+  <div class="sidebar-settings" id="sidebarSettings" aria-label="Settings">
+    <div class="sidebar-settings-title">Settings</div>
+    <label class="sidebar-setting-label" for="patient-select">Patient</label>
+    <select id="patient-select" class="settings-select" title="Select patient">
+      <option value="" disabled selected>Loading…</option>
     </select>
-    <label class="sidebar-setting-label" for="tts-voice-select">Giọng đọc (TTS)</label>
-    <select id="tts-voice-select" class="settings-select" title="Giọng TTS">
-      <option value="vi-VN-HoaiMyNeural">Tiếng Việt — Nữ</option>
-      <option value="vi-VN-NamMinhNeural">Tiếng Việt — Nam</option>
+    <label class="sidebar-setting-label" for="tts-voice-select">Voice (TTS)</label>
+    <select id="tts-voice-select" class="settings-select" title="TTS voice">
+      <option value="vi-VN-HoaiMyNeural">Vietnamese — Female</option>
+      <option value="vi-VN-NamMinhNeural">Vietnamese — Male</option>
     </select>
   </div>
   <div class="sidebar-footer">
-    <button type="button" class="sidebar-icon-btn" id="themeToggle" title="Chuyển giao diện sáng / tối">
+    <button type="button" class="sidebar-icon-btn" id="themeToggle" title="Toggle light / dark theme">
       <svg class="theme-toggle-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M3 12h2M19 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
       <svg class="theme-toggle-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
-      <span id="themeToggleLabel">Tối</span>
+      <span id="themeToggleLabel">Dark</span>
     </button>
     <button class="sidebar-icon-btn secondary" id="settingsBtn" title="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06A1.65 1.65 0 0015 19.4a1.65 1.65 0 00-1 .6 1.65 1.65 0 00-.33 1.4V22a2 2 0 01-4 0v-.12a1.65 1.65 0 00-.33-1.4 1.65 1.65 0 00-1-.6 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-.6-1 1.65 1.65 0 00-1.4-.33H2a2 2 0 010-4h.12a1.65 1.65 0 001.4-.33 1.65 1.65 0 00.6-1 1.65 1.65 0 00-.6-1L3.46 6.3a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 008.6 4.6a1.65 1.65 0 001-.6 1.65 1.65 0 00.33-1.4V2a2 2 0 014 0v.12a1.65 1.65 0 00.33 1.4 1.65 1.65 0 001 .6 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.6 1 1.65 1.65 0 00.6 1z"/></svg>
@@ -334,19 +64,19 @@ body.dark .input-wrap:focus-within{border-color:var(--text3)}
   <div class="topbar">
     <div class="topbar-brand">
       <div class="topbar-logo">
-        <img src="logo.svg" alt="Pasteur AI Logo">
+        <img src="assets/logo.svg" alt="Pasteur AI Logo">
       </div>
       <span class="topbar-title">Pasteur AI</span>
       <span class="topbar-badge">Medical Intelligence</span>
     </div>
     <div class="topbar-right">
-      <span class="topbar-status" id="status-text">Đang kết nối…</span>
+      <span class="topbar-status" id="status-text">Connecting…</span>
     </div>
   </div>
 
   <div class="welcome" id="welcomeScreen">
     <div class="welcome-logo">
-      <img src="logo.svg" alt="Pasteur AI Logo">
+      <img src="assets/logo.svg" alt="Pasteur AI Logo">
     </div>
     <h1>Hello, how can I help you today?</h1>
     <p>Ask me about symptoms, medications, conditions, or general health guidance.</p>
@@ -364,7 +94,7 @@ body.dark .input-wrap:focus-within{border-color:var(--text3)}
     <div class="input-wrap">
       <textarea class="input-field" id="inputField" placeholder="Ask a medical question…" rows="1"
         onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
-      <button type="button" class="btn-mic" id="micBtn" title="Ghi âm (STT) — nhấn để bắt đầu, nhấn lại để gửi">
+      <button type="button" class="btn-mic" id="micBtn" title="Voice input (STT) — tap to start, tap again to send">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
       </button>
       <button class="btn-send" id="sendBtn" onclick="sendMessage()">
@@ -400,17 +130,11 @@ function sendMessage(){
   if(welcome.style.display!=='none'){welcome.style.display='none';msgs.style.display='flex';}
   field.value='';field.style.height='auto';
   addToSidebar(text);
-  // gọi backend thực sự (defined trong app.js)
+  // real backend call (defined in app.js)
   if (window.backendSendMessage) {
     isTyping=true;
     document.getElementById('sendBtn').disabled=true;
-    const typing=createTyping();
-    msgs.appendChild(typing);
-    msgs.scrollTop=msgs.scrollHeight;
     window.backendSendMessage(text).finally(()=>{
-      // UI thực tế sẽ được render lại bởi app.js (renderConversation),
-      // nên chỉ cần gỡ typing + enable nút.
-      typing.remove();
       isTyping=false;
       document.getElementById('sendBtn').disabled=false;
     });
@@ -454,33 +178,9 @@ function doCopy(btn){
   });
 }
 
-function createTyping(){
-  const row=document.createElement('div');
-  row.className='typing-row';
-  const lbl=document.createElement('div');
-  lbl.className='typing-label';lbl.textContent='Pasteur AI';
-  const inner=document.createElement('div');
-  inner.className='typing-inner';
-  const lw=document.createElement('div');
-  lw.className='typing-logo-wrap';
-  const img=document.createElement('img');
-  img.src='logo.svg';
-  img.alt='Pasteur AI Logo';
-  img.style.width='26px';
-  img.style.height='26px';
-  img.style.objectFit='contain';
-  lw.appendChild(img);
-  const dots=document.createElement('div');
-  dots.className='dots';
-  [1,2,3].forEach(()=>{const d=document.createElement('div');d.className='dot';dots.appendChild(d);});
-  inner.appendChild(lw);inner.appendChild(dots);
-  row.appendChild(lbl);row.appendChild(inner);
-  return row;
-}
-
 function addToSidebar(text){
-  // Danh sách conversation ở sidebar được render từ dữ liệu backend trong app.js (renderConversationList).
-  // Hàm này giữ lại cho tương thích, nhưng không cần thao tác gì ở frontend thuần nữa.
+  // Sidebar list is driven by backend data in app.js (renderConversationList).
+  // Kept for compatibility; no-op for the current UI.
 }
 
 (function initTheme(){
@@ -497,7 +197,7 @@ function addToSidebar(text){
   }
   function syncLabel(){
     if(!label) return;
-    label.textContent = body.classList.contains("dark") ? "Sáng" : "Tối";
+    label.textContent = body.classList.contains("dark") ? "Light" : "Dark";
   }
   applyFromStorage();
   if(btn){

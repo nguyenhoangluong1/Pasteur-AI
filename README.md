@@ -12,6 +12,8 @@ python -m venv venv
 pip install -r requirements.txt
 cp .env.example .env
 # Sửa .env: thêm GEMINI_API_KEY (và DB nếu dùng Postgres)
+
+source venv/bin/activate
 uvicorn core.api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
