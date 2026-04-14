@@ -94,7 +94,8 @@ function setSending(v) {
   state.sending = v;
   if (sendBtn) sendBtn.disabled = v;
   if (statusText) {
-    statusText.textContent = v ? "Đang soạn trả lời…" : STATUS_IDLE;
+    // Keep topbar status stable; typing UI is shown in message list.
+    statusText.textContent = STATUS_IDLE;
   }
 }
 
@@ -328,16 +329,8 @@ function appendMessage(role, content, createdAt) {
   }
 
   const body = document.createElement("div");
-  const shouldShowAssistantText = normRole === "assistant" && state.showAssistantTextPreview;
-  const renderedText = shouldShowAssistantText
-    ? getAssistantTextPreview(content)
-    : content;
-  if (normRole === "assistant" && !state.showAssistantTextPreview) {
-    body.innerHTML =
-      '<p><em>Đã trả lời bằng giọng nói. Bật "Hiện tóm tắt chữ của AI" nếu muốn xem text ngắn.</em></p>';
-  } else {
-    body.innerHTML = renderMessageContent(renderedText);
-  }
+  // Always render full assistant text to avoid hidden/truncated responses.
+  body.innerHTML = renderMessageContent(content);
 
   bubble.appendChild(meta);
   bubble.appendChild(body);
