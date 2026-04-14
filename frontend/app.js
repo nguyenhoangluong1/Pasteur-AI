@@ -31,6 +31,12 @@ const state = {
   conversationId: null,
   sending: false,
   conversations: [],
+  voiceSending: false,
+  recording: false,
+  activeAudioRequestId: 0,
+  activeTtsPlaybackId: 0,
+  audioPrimed: false,
+  showAssistantTextPreview: false,
 };
 
 // Chat UI with separate form/selector — skip init if elements are missing.
@@ -52,6 +58,22 @@ const sendBtn = document.getElementById("sendBtn");
 const statusText =
   document.getElementById("status-text") ||
   document.querySelector(".topbar-status");
+const assistantTextToggle = document.getElementById("assistant-text-toggle");
+const ASSISTANT_TEXT_PREVIEW_KEY = "pasteur-assistant-text-preview";
+
+function getAssistantTextPreview(content) {
+  const clean = stripForTts(content);
+  if (!clean) return "Đã tạo câu trả lời bằng giọng nói.";
+  const firstSentence = clean.split(/[.!?]\s+/).filter(Boolean)[0] || clean;
+  const preview = firstSentence.trim();
+  if (preview.length <= 110) return preview;
+  return preview.slice(0, 110).trim() + "...";
+}
+
+function applyAssistantTextPreviewUi() {
+  if (!assistantTextToggle) return;
+  assistantTextToggle.checked = !!state.showAssistantTextPreview;
+}
 
 async function api(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -73,7 +95,18 @@ function setSending(v) {
   }
 }
 
-/** Plain text for TTS (strip markdown **). */
+function showStatusTemp(message, timeoutMs = 8000) {
+  if (!statusText) return;
+  statusText.textContent = message;
+  window.clearTimeout(state.__statusResetTimer);
+  state.__statusResetTimer = window.setTimeout(() => {
+    if (!state.sending && !state.voiceSending && !state.recording) {
+      statusText.textContent = STATUS_IDLE;
+    }
+  }, timeoutMs);
+}
+
+/** Van ban thuan cho TTS (bo markdown **). */
 function stripForTts(raw) {
   return (raw ?? "")
     .toString()
@@ -82,7 +115,150 @@ function stripForTts(raw) {
     .trim();
 }
 
+function stopActiveAudio() {
+  if (!window.__pasteurAudioPlayer) return;
+  try {
+    window.__pasteurAudioPlayer.pause();
+  } catch (_) {}
+  const prevUrl = window.__pasteurAudioPlayer.__blobUrl;
+  if (prevUrl) {
+    try {
+      URL.revokeObjectURL(prevUrl);
+    } catch (_) {}
+  }
+}
+
+function isExpectedPlayInterrupt(err) {
+  if (!err) return false;
+  return err.name === "AbortError";
+}
+
+function isAutoplayBlockedError(err) {
+  if (!err) return false;
+  return err.name === "NotAllowedError";
+}
+
+function primeAudioOutputFromGesture() {
+  if (state.audioPrimed) return;
+  try {
+    const a = new Audio();
+    a.muted = true;
+    const p = a.play();
+    if (p && typeof p.then === "function") {
+      p.then(() => {
+        a.pause();
+        state.audioPrimed = true;
+      }).catch(() => {});
+    } else {
+      state.audioPrimed = true;
+    }
+  } catch (_) {}
+}
+
+async function playAudioFromBlob(blob, playbackId) {
+  console.info("[TTS] playAudioFromBlob", {
+    size: blob?.size || 0,
+    type: blob?.type || "unknown",
+    playbackId,
+  });
+  const url = URL.createObjectURL(blob);
+  stopActiveAudio();
+  const player = new Audio(url);
+  player.__blobUrl = url;
+  player.addEventListener("error", () => {
+    const mediaError = player.error;
+    console.error("[TTS] audio element error", {
+      playbackId,
+      code: mediaError?.code,
+      message: mediaError?.message || "unknown",
+    });
+  });
+  window.__pasteurAudioPlayer = player;
+  try {
+    await player.play();
+  } catch (err) {
+    if (isExpectedPlayInterrupt(err) || playbackId !== state.activeTtsPlaybackId) return;
+    throw err;
+  }
+  console.info("[TTS] blob playback started", { playbackId });
+}
+
+async function playAudioFromReadableStream(res, playbackId, mimeType = "audio/mpeg") {
+  // Audio-first ưu tiên độ ổn định: nhận full blob rồi play (tránh MSE/mp3 lỗi decode).
+  console.info("[TTS] stream mode", { canStream: false, mimeType, playbackId });
+  const blob = await res.blob();
+  console.info("[TTS] stream -> blob", {
+    size: blob?.size || 0,
+    type: blob?.type || "unknown",
+    playbackId,
+  });
+  if (!blob || blob.size === 0) throw new Error("Audio stream trả về rỗng");
+  await playAudioFromBlob(blob, playbackId);
+}
+
+async function fetchTtsBlobFallback(text, voice) {
+  const res = await fetch(`${API_BASE}/chat/tts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, voice: voice || null }),
+  });
+  const raw = await res.text();
+  if (!res.ok) {
+    throw new Error(raw || res.statusText);
+  }
+  let data = {};
+  try {
+    data = JSON.parse(raw);
+  } catch (_) {
+    throw new Error("Phản hồi fallback TTS không hợp lệ.");
+  }
+  if (!data.audio_base64 || !data.audio_mime) {
+    throw new Error("Fallback TTS không có dữ liệu audio.");
+  }
+  const b64 = data.audio_base64;
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: data.audio_mime || "audio/mpeg" });
+}
+
+async function playTtsStream(text, voice) {
+  const playbackId = ++state.activeTtsPlaybackId;
+  console.info("[TTS] request stream", {
+    playbackId,
+    voice: voice || "default",
+    textLen: (text || "").length,
+  });
+  try {
+    const res = await fetch(`${API_BASE}/chat/tts/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice: voice || null }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(errText || res.statusText);
+    }
+    console.info("[TTS] stream response", {
+      playbackId,
+      status: res.status,
+      contentType: res.headers.get("content-type"),
+    });
+    await playAudioFromReadableStream(res, playbackId, "audio/mpeg");
+  } catch (err) {
+    if (isExpectedPlayInterrupt(err) || isAutoplayBlockedError(err)) {
+      throw err;
+    }
+    console.warn("[TTS] stream failed, trying /chat/tts fallback", err);
+    const fallbackBlob = await fetchTtsBlobFallback(text, voice);
+    await playAudioFromBlob(fallbackBlob, playbackId);
+  }
+}
+
 async function playTtsForText(text, buttonEl) {
+  primeAudioOutputFromGesture();
   const t = stripForTts(text);
   if (!t) return;
   if (buttonEl) {
@@ -92,22 +268,14 @@ async function playTtsForText(text, buttonEl) {
   try {
     const voice =
       (document.getElementById("tts-voice-select") || {}).value || null;
-    const res = await fetch(`${API_BASE}/chat/tts`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: t, voice: voice || null }),
-    });
-    const errText = await res.text();
-    if (!res.ok) throw new Error(errText || res.statusText);
-    const data = JSON.parse(errText);
-    if (data.audio_base64 && data.audio_mime) {
-      const url = `data:${data.audio_mime};base64,${data.audio_base64}`;
-      const a = new Audio(url);
-      a.play();
-    }
+    await playTtsStream(t, voice);
   } catch (e) {
-    console.error(e);
-    if (statusText) statusText.textContent = "Could not play TTS.";
+    console.error("[TTS] playTtsForText failed", e);
+    if (statusText) {
+      statusText.textContent = isAutoplayBlockedError(e)
+        ? "Trình duyệt đang chặn phát loa tự động. Hãy bật quyền Sound/Autoplay cho trang."
+        : "Không phát được TTS.";
+    }
   } finally {
     if (buttonEl) buttonEl.disabled = false;
     if (statusText) statusText.textContent = STATUS_IDLE;
@@ -157,7 +325,16 @@ function appendMessage(role, content, createdAt) {
   }
 
   const body = document.createElement("div");
-  body.innerHTML = renderMessageContent(content);
+  const shouldShowAssistantText = normRole === "assistant" && state.showAssistantTextPreview;
+  const renderedText = shouldShowAssistantText
+    ? getAssistantTextPreview(content)
+    : content;
+  if (normRole === "assistant" && !state.showAssistantTextPreview) {
+    body.innerHTML =
+      '<p><em>Đã trả lời bằng giọng nói. Bật "Hiện tóm tắt chữ của AI" nếu muốn xem text ngắn.</em></p>';
+  } else {
+    body.innerHTML = renderMessageContent(renderedText);
+  }
 
   bubble.appendChild(meta);
   bubble.appendChild(body);
@@ -249,7 +426,24 @@ function renderConversationList(conversations) {
 function renderConversation(messages) {
   if (!messagesEl) return;
   messagesEl.innerHTML = "";
-  const list = Array.isArray(messages) ? messages : [];
+  const list = Array.isArray(messages) ? [...messages] : [];
+  // Backend relation order có thể không ổn định tuyệt đối; ép thứ tự hiển thị theo thời gian.
+  list.sort((a, b) => {
+    const ta = a?.created_at ? Date.parse(a.created_at) : 0;
+    const tb = b?.created_at ? Date.parse(b.created_at) : 0;
+    if (ta !== tb) return ta - tb;
+
+    const ra = (a?.role || "").toString().toLowerCase();
+    const rb = (b?.role || "").toString().toLowerCase();
+    if (ra !== rb) {
+      if (ra === "user") return -1;
+      if (rb === "user") return 1;
+    }
+
+    const ia = (a?.id || "").toString();
+    const ib = (b?.id || "").toString();
+    return ia.localeCompare(ib);
+  });
   for (const m of list) {
     const r = (m.role || "").toString().toLowerCase();
     if (r === "system") continue;
@@ -369,6 +563,24 @@ async function backendSendMessage(rawText) {
       }
     }
     renderConversation(res.messages || []);
+    if (res.assistant_message) {
+      const voiceSel = document.getElementById("tts-voice-select");
+      const selectedVoice =
+        voiceSel && voiceSel.value ? voiceSel.value : null;
+      playTtsStream(stripForTts(res.assistant_message), selectedVoice).catch(
+        (e) => {
+          if (isAutoplayBlockedError(e)) {
+            showStatusTemp(
+              "Đã có câu trả lời, nhưng loa bị chặn autoplay. Bấm nút Đọc hoặc bật quyền Sound/Autoplay."
+            );
+            return;
+          }
+          if (!isExpectedPlayInterrupt(e)) {
+            console.warn("[TTS] auto-play for text response failed", e);
+          }
+        }
+      );
+    }
   } catch (err) {
     console.error(err);
     if (typingEl?.parentNode) typingEl.remove();
@@ -454,9 +666,36 @@ async function loadTtsVoices() {
   }
 }
 
+function initAssistantTextPreference() {
+  try {
+    const saved = localStorage.getItem(ASSISTANT_TEXT_PREVIEW_KEY);
+    state.showAssistantTextPreview = saved === "1";
+  } catch (_) {
+    state.showAssistantTextPreview = false;
+  }
+  applyAssistantTextPreviewUi();
+  if (assistantTextToggle) {
+    assistantTextToggle.addEventListener("change", (e) => {
+      state.showAssistantTextPreview = !!e.target.checked;
+      try {
+        localStorage.setItem(
+          ASSISTANT_TEXT_PREVIEW_KEY,
+          state.showAssistantTextPreview ? "1" : "0"
+        );
+      } catch (_) {}
+      if (state.conversationId) {
+        api(`/conversations/${encodeURIComponent(state.conversationId)}`)
+          .then((detail) => renderConversation(detail.messages || []))
+          .catch((err) => console.warn("refresh conversation after toggle", err));
+      }
+    });
+  }
+}
+
 if (patientSelect) {
   (async function init() {
     try {
+      initAssistantTextPreference();
       await Promise.all([loadPatients(), loadTtsVoices()]);
       if (statusText) {
         statusText.textContent = STATUS_IDLE;
@@ -480,27 +719,42 @@ if (patientSelect) {
 let voiceRecorder = null;
 let voiceChunks = [];
 let voiceStream = null;
+let recordingStartedAt = 0;
+
+function setMicUiState({ recording = false, disabled = false } = {}) {
+  const micBtn = document.getElementById("micBtn");
+  if (!micBtn) return;
+  micBtn.classList.toggle("recording", recording);
+  micBtn.disabled = !!disabled;
+}
 
 async function backendSendAudio(blob) {
+  if (state.voiceSending) return;
   if (!state.patientId) {
     if (statusText) statusText.textContent = "No patient selected";
     return;
   }
+  const requestId = ++state.activeAudioRequestId;
+  const currentPatientId = state.patientId;
+  const currentConversationId = state.conversationId;
   const welcome = document.getElementById("welcomeScreen");
   const msgs = document.getElementById("messages");
   if (welcome && welcome.style.display !== "none") {
     welcome.style.display = "none";
     if (msgs) msgs.style.display = "flex";
   }
+  state.voiceSending = true;
+  setMicUiState({ disabled: true });
   setSending(true);
   const fd = new FormData();
-  fd.append("patient_id", state.patientId);
-  if (state.conversationId) fd.append("conversation_id", state.conversationId);
+  fd.append("patient_id", currentPatientId);
+  if (currentConversationId) fd.append("conversation_id", currentConversationId);
   fd.append("audio", blob, "recording.webm");
   const voiceSel = document.getElementById("tts-voice-select");
   if (voiceSel && voiceSel.value) {
     fd.append("tts_voice", voiceSel.value);
   }
+  fd.append("include_tts", "false");
   if (!blob || blob.size < 16) {
     if (statusText) statusText.textContent = "Recording too short — speak a bit longer.";
     setSending(false);
@@ -510,7 +764,15 @@ async function backendSendAudio(blob) {
     const res = await fetch(`${API_BASE}/chat/audio`, { method: "POST", body: fd });
     const text = await res.text();
     if (!res.ok) throw new Error(text || res.statusText);
-    const data = JSON.parse(text);
+    let data = {};
+    try {
+      data = JSON.parse(text);
+    } catch (parseErr) {
+      throw new Error("Phản hồi audio không hợp lệ từ backend.");
+    }
+    if (requestId !== state.activeAudioRequestId || state.patientId !== currentPatientId) {
+      return;
+    }
     state.conversationId = data.conversation_id;
     try {
       const convs = await api(
@@ -521,14 +783,28 @@ async function backendSendAudio(blob) {
     } catch (e) {
       console.error(e);
     }
-    renderConversation(data.messages || []);
-    if (data.audio_base64 && data.audio_mime) {
-      try {
-        const url = `data:${data.audio_mime};base64,${data.audio_base64}`;
-        new Audio(url).play();
-      } catch (e) {
-        console.warn("TTS play", e);
-      }
+    if (Array.isArray(data.messages) && data.messages.length) {
+      renderConversation(data.messages);
+    } else {
+      if (data.transcript) appendMessage("user", data.transcript);
+      if (data.assistant_message) appendMessage("assistant", data.assistant_message);
+    }
+    // Da nhan xong response chat: tra UI ve idle ngay, khong doi TTS phat xong.
+    setSending(false);
+    if (statusText) statusText.textContent = STATUS_IDLE;
+    if (data.assistant_message) {
+      const selectedVoice = (voiceSel && voiceSel.value) ? voiceSel.value : null;
+      playTtsStream(stripForTts(data.assistant_message), selectedVoice).catch((e) => {
+        if (isAutoplayBlockedError(e)) {
+          showStatusTemp(
+            "Đã có câu trả lời, nhưng loa bị chặn autoplay. Bấm nút Đọc hoặc bật quyền Sound/Autoplay."
+          );
+          return;
+        }
+        if (!isExpectedPlayInterrupt(e)) {
+          console.warn("[TTS] auto-play for audio response failed", e);
+        }
+      });
     }
   } catch (err) {
     console.error(err);
@@ -539,13 +815,19 @@ async function backendSendAudio(blob) {
       );
     }
   } finally {
-    setSending(false);
-    if (statusText) statusText.textContent = STATUS_IDLE;
+    state.voiceSending = false;
+    setMicUiState({ disabled: false });
+    // Truong hop da tra ve idle som o tren thi giu nguyen; neu co loi thi reset lai.
+    if (state.sending) setSending(false);
+    if (statusText && statusText.textContent === "Đang soạn trả lời…") {
+      statusText.textContent = STATUS_IDLE;
+    }
   }
 }
 
 async function toggleVoiceRecord() {
-  const micBtn = document.getElementById("micBtn");
+  primeAudioOutputFromGesture();
+  if (state.sending || state.voiceSending) return;
   if (voiceRecorder && voiceRecorder.state === "recording") {
     voiceRecorder.stop();
     return;
@@ -562,7 +844,18 @@ async function toggleVoiceRecord() {
     return;
   }
   try {
-    voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (voiceStream) {
+      voiceStream.getTracks().forEach((t) => t.stop());
+      voiceStream = null;
+    }
+    voiceStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+      },
+    });
     const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
       ? "audio/webm;codecs=opus"
       : MediaRecorder.isTypeSupported("audio/webm")
@@ -575,23 +868,42 @@ async function toggleVoiceRecord() {
     voiceRecorder.ondataavailable = (e) => {
       if (e.data && e.data.size) voiceChunks.push(e.data);
     };
+    voiceRecorder.onerror = (evt) => {
+      console.error("voiceRecorder.onerror", evt);
+      state.recording = false;
+      setMicUiState({ recording: false, disabled: false });
+      if (statusText) statusText.textContent = "Lỗi ghi âm. Vui lòng thử lại.";
+    };
     voiceRecorder.onstop = async () => {
-      voiceStream.getTracks().forEach((t) => t.stop());
+      if (voiceStream) {
+        voiceStream.getTracks().forEach((t) => t.stop());
+      }
       voiceStream = null;
-      if (micBtn) micBtn.classList.remove("recording");
+      state.recording = false;
+      setMicUiState({ recording: false, disabled: true });
+      const durationMs = Date.now() - recordingStartedAt;
       const blob = new Blob(voiceChunks, {
         type: voiceRecorder.mimeType || "audio/webm",
       });
       voiceRecorder = null;
       voiceChunks = [];
+      if (durationMs < 450 || blob.size < 16) {
+        setMicUiState({ disabled: false });
+        if (statusText) statusText.textContent = "Bản ghi quá ngắn, hãy nói lâu hơn một chút.";
+        return;
+      }
       await backendSendAudio(blob);
     };
     voiceRecorder.start(250);
-    if (micBtn) micBtn.classList.add("recording");
-    if (statusText) statusText.textContent = "Recording… tap the mic again to send.";
+    recordingStartedAt = Date.now();
+    state.recording = true;
+    setMicUiState({ recording: true, disabled: false });
+    if (statusText) statusText.textContent = "Đang ghi… nhấn mic lần nữa để gửi.";
   } catch (e) {
     console.error(e);
-    if (statusText) statusText.textContent = "Could not open microphone.";
+    state.recording = false;
+    setMicUiState({ recording: false, disabled: false });
+    if (statusText) statusText.textContent = "Không mở được microphone.";
   }
 }
 

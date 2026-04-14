@@ -2,6 +2,7 @@ import base64
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -9,7 +10,7 @@ from core.api.deps import get_db
 from core.db.models import Patient
 from core.services.chatbot_service import chat_with_gemini
 from core.speech import transcribe_audio
-from core.speech.tts import synthesize_speech_sync
+from core.speech.tts import synthesize_speech_chunks_async, synthesize_speech_sync
 
 
 router = APIRouter()
@@ -115,6 +116,23 @@ def tts_only(body: TTSOnlyRequest):
     return TTSOnlyResponse(audio_base64=b64, audio_mime=audio_mime)
 
 
+@router.post("/tts/stream")
+async def tts_stream(body: TTSOnlyRequest):
+    """TTS streaming audio/mpeg de frontend phat mem hon."""
+    raw = (body.text or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="text is empty")
+
+    return StreamingResponse(
+        synthesize_speech_chunks_async(raw, voice=body.voice),
+        media_type="audio/mpeg",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.get("/tts/voices")
 def tts_voice_list():
     """Danh sach giong edge-tts tieng Viet (de frontend chon)."""
@@ -129,6 +147,7 @@ def chat_audio(
     patient_id: str = Form(...),
     conversation_id: str | None = Form(None),
     tts_voice: str | None = Form(None),
+    include_tts: bool = Form(True),
     audio: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
@@ -158,14 +177,16 @@ def chat_audio(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    try:
-        audio_out, audio_mime = synthesize_speech_sync(
-            assistant_text, voice=tts_voice
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"TTS failed: {exc}") from exc
-
-    b64 = base64.b64encode(audio_out).decode("ascii") if audio_out else None
+    b64 = None
+    audio_mime = None
+    if include_tts:
+        try:
+            audio_out, audio_mime = synthesize_speech_sync(
+                assistant_text, voice=tts_voice
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"TTS failed: {exc}") from exc
+        b64 = base64.b64encode(audio_out).decode("ascii") if audio_out else None
 
     return ChatResponse(
         conversation_id=conv.id,

@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     )
     # Tên model theo SDK mới `google-genai` (client tự thêm tiền tố `models/`)
     # Có thể override bằng biến môi trường GEMINI_MODEL nếu muốn.
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-2.5-flash-lite"
 
     # TTS (edge-tts — giong tieng Viet, khong can API key)
     tts_voice: str = "vi-VN-HoaiMyNeural"

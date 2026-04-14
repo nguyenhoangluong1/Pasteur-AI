@@ -36,6 +36,8 @@ def transcribe_audio(audio_bytes: bytes, mime_type: str | None = None) -> str:
     prompt = (
         "Ban la cong cu chuyen loi noi thanh chu. "
         "Nghe file audio va ghi lai DUNG loi nguoi noi bang tieng Viet. "
+        "Bo qua tap am moi truong (quat, xe, tieng tre em, tieng click, am thanh nen). "
+        "Khong doan them noi dung neu khong nghe ro. "
         "Chi tra ve ban ghi chu, khong giai thich, khong them dau ngoac hay tien to."
     )
 

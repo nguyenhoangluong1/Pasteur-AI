@@ -17,3 +17,6 @@ google-genai>=1.0.0
 
 # Speech (TTS)
 edge-tts>=7.0.0
+
+
+pytest>=7.0.0
