@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.db import init_db
@@ -33,6 +34,11 @@ app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(patients.router, prefix="/api/patients", tags=["patients"])
 app.include_router(conversations.router, prefix="/api/conversations", tags=["conversations"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/app/")
 
 # Giao dien chat + mic can HTTPS/localhost; mo: http://127.0.0.1:8000/app/
 _frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
