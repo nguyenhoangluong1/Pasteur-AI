@@ -26,7 +26,7 @@
   --shadow-sm:0 1px 2px rgba(0,0,0,.04);
   --shadow-composer:0 2px 14px rgba(0,0,0,.06);
 }
-html{font-family:var(--font-sans);font-size:15px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+html{font-family:var(--font-sans);font-size:16px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 body{font-family:inherit;background:var(--bg);color:var(--text);height:100vh;display:flex;overflow:hidden;font-size:1rem}
 button,input,textarea,select{font-family:inherit}
 body.dark{
@@ -141,7 +141,7 @@ body.dark .sidebar-fab-open:hover{background:rgba(255,255,255,.08)}
 .topbar-badge{font-size:11px;font-weight:500;color:var(--text3);background:var(--msg-ai);padding:4px 11px;border-radius:999px;letter-spacing:0;flex-shrink:0;border:1px solid var(--border-subtle)}
 body.dark .topbar-badge{background:var(--sidebar);color:var(--text2)}
 .topbar-right{margin-left:auto;display:flex;align-items:center;justify-content:flex-end;min-width:0}
-.topbar-back-btn{display:none;align-items:center;gap:6px;padding:7px 11px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text2);font-size:12px;font-weight:500;cursor:pointer;transition:background .15s,border-color .15s,color .15s;margin-right:10px;flex-shrink:0}
+.topbar-back-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text2);font-size:12px;font-weight:500;cursor:pointer;transition:background .15s,border-color .15s,color .15s;margin-right:10px;flex-shrink:0}
 .topbar-back-btn:hover{background:var(--msg-ai);color:var(--text)}
 .topbar-back-btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .topbar-status{font-size:12px;color:var(--text3);text-align:right;max-width:min(280px,42vw);line-height:1.4;font-weight:400;letter-spacing:0}
@@ -177,9 +177,9 @@ body.dark .theme-toggle-moon{display:inline}
 
 /* TTS under assistant bubbles (app.js) */
 .message-tts-row{display:flex;justify-content:flex-start;padding:0 4px;margin-top:6px;margin-left:2px}
-.msg-tts-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text2);font-size:12px;font-weight:500;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+.msg-tts-btn{display:inline-flex;align-items:center;gap:8px;padding:10px 16px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text2);font-size:14px;font-weight:600;cursor:pointer;transition:background .15s,border-color .15s,color .15s;min-height:44px}
 .msg-tts-btn:hover{background:var(--msg-ai);color:var(--text)}
-.msg-tts-btn svg{width:14px;height:14px;flex-shrink:0;stroke:currentColor}
+.msg-tts-btn svg{width:20px;height:20px;flex-shrink:0;stroke:currentColor}
 .msg-tts-btn:disabled{opacity:.55;cursor:wait}
 
 /* Message hover actions */
@@ -192,17 +192,17 @@ body.dark .theme-toggle-moon{display:inline}
 .msg-action-btn:hover .action-tooltip{opacity:1}
 
 /* TYPING — animated logo petals */
-.typing-row{display:flex;flex-direction:column;align-items:flex-start;gap:5px;width:100%}
-.typing-label{font-size:12px;font-weight:600;color:var(--text3);padding:0 4px;letter-spacing:.03em}
-.typing-inner{display:flex;align-items:center;gap:10px;padding:14px 18px;background:var(--msg-ai);border-radius:var(--radius);border:1px solid var(--border-subtle)}
+.typing-row{display:flex;flex-direction:column;align-items:flex-start;gap:7px;width:100%}
+.typing-label{font-size:13px;font-weight:600;color:var(--text3);padding:0 4px;letter-spacing:.03em}
+.typing-inner{display:flex;align-items:center;gap:12px;padding:16px 20px;background:var(--msg-ai);border-radius:var(--radius);border:1px solid var(--border-subtle)}
 .typing-logo-wrap{width:26px;height:26px;flex-shrink:0}
 .typing-logo-wrap svg{width:100%;height:100%;transform-origin:center center;animation:petalFloat 2s ease-in-out infinite}
 @keyframes petalFloat{
   0%,100%{transform:translateY(0) scale(1);opacity:1}
   50%{transform:translateY(-2px) scale(1.02);opacity:.9}
 }
-.dots{display:flex;gap:5px;align-items:center}
-.dot{width:5px;height:5px;border-radius:50%;background:var(--text3);opacity:.45;animation:dotBounce 1.2s ease-in-out infinite}
+.dots{display:flex;gap:6px;align-items:center}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--text3);opacity:.45;animation:dotBounce 1.2s ease-in-out infinite}
 .dot:nth-child(2){animation-delay:.16s}
 .dot:nth-child(3){animation-delay:.32s}
 @keyframes dotBounce{0%,80%,100%{transform:translateY(0);opacity:.4}40%{transform:translateY(-7px);opacity:1}}
@@ -210,19 +210,19 @@ body.dark .theme-toggle-moon{display:inline}
 /* INPUT — composer nổi nhẹ kiểu Claude */
 .input-area{padding:16px var(--content-padx) 20px;border-top:1px solid var(--border-subtle);background:var(--bg);display:flex;flex-direction:column;align-items:center}
 .input-area .input-wrap{max-width:var(--chat-max);width:100%}
-.input-wrap{display:flex;align-items:flex-end;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px 10px 16px;transition:border-color .2s,box-shadow .2s;box-shadow:var(--shadow-sm)}
+.input-wrap{display:flex;align-items:flex-end;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:12px 14px 12px 18px;transition:border-color .2s,box-shadow .2s;box-shadow:var(--shadow-sm)}
 .input-wrap:focus-within{border-color:var(--text3);box-shadow:var(--shadow-composer)}
 body.dark .input-wrap:focus-within{border-color:var(--text3)}
 .input-field{flex:1;border:none;outline:none;background:transparent;font-size:14.5px;color:var(--text);resize:none;min-height:22px;max-height:160px;line-height:1.5}
 .input-field::placeholder{color:var(--text3)}
-.btn-send{width:36px;height:36px;border-radius:12px;background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .16s,transform .12s,opacity .12s;flex-shrink:0}
+.btn-send{width:42px;height:42px;border-radius:14px;background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .16s,transform .12s,opacity .12s;flex-shrink:0}
 .btn-send:hover{background:var(--accent-h);transform:scale(1.03)}
 .btn-send:disabled{background:var(--border);cursor:not-allowed;transform:none;opacity:.65}
-.btn-send svg{width:15px;height:15px;stroke:#fff}
-.btn-mic{width:36px;height:36px;border-radius:12px;background:transparent;border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .16s,border-color .16s}
+.btn-send svg{width:17px;height:17px;stroke:#fff}
+.btn-mic{width:48px;height:48px;border-radius:15px;background:var(--surface);border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .16s,border-color .16s,transform .12s}
 .btn-mic:hover{background:var(--msg-ai);border-color:var(--text3)}
-.btn-mic svg{width:17px;height:17px;stroke:var(--text2)}
-.btn-mic.recording{border-color:#EF4444;background:#FEF2F2;animation:pulseRec .9s ease-in-out infinite}
+.btn-mic svg{width:24px;height:24px;stroke:var(--text2)}
+.btn-mic.recording{border-color:#EF4444;background:#FEF2F2;animation:pulseRec .9s ease-in-out infinite;transform:scale(1.04)}
 @keyframes pulseRec{0%,100%{opacity:1}50%{opacity:.65}}
 .disclaimer{text-align:center;font-size:11px;color:var(--text3);margin-top:10px;line-height:1.5;max-width:var(--chat-max);width:100%;opacity:.85}
 
@@ -235,6 +235,15 @@ body.dark .input-wrap:focus-within{border-color:var(--text3)}
 .welcome-chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:4px;max-width:var(--chat-max)}
 .chip{padding:9px 15px;border:1px solid var(--border);border-radius:999px;font-size:13px;color:var(--text2);cursor:pointer;transition:background .15s,border-color .15s,color .15s,box-shadow .15s;background:var(--surface);box-shadow:var(--shadow-sm)}
 .chip:hover{border-color:var(--border);background:var(--msg-ai);color:var(--text);box-shadow:none}
+.welcome-patient-card{width:min(100%,540px);background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow-sm)}
+.welcome-patient-card h2{font-size:15px;font-weight:600;color:var(--text);text-align:left}
+.welcome-patient-row{display:flex;gap:10px;flex-wrap:wrap}
+.welcome-patient-select{flex:1;min-width:220px;border-radius:12px;border:1px solid var(--border);background:var(--surface);font-size:14px;color:var(--text2);padding:10px 12px;outline:none}
+.welcome-patient-select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.welcome-start-btn{border:none;background:var(--accent);color:#fff;border-radius:12px;padding:10px 14px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s,transform .12s}
+.welcome-start-btn:hover{background:var(--accent-h);transform:scale(1.02)}
+.welcome-start-btn:disabled{background:var(--border);color:var(--text3);cursor:not-allowed;transform:none}
+.welcome-patient-hint{font-size:12px;color:var(--text3);text-align:left;line-height:1.45}
 
 /* Desktop: ẩn panel hội thoại */
 @media(min-width:721px){
@@ -280,6 +289,18 @@ body.dark .input-wrap:focus-within{border-color:var(--text3)}
     padding-left:max(44px,var(--content-padx));
   }
   .topbar-status{max-width:42vw;font-size:11px}
+  .welcome-patient-row{flex-direction:column}
+  .welcome-start-btn{width:100%}
+  .msg-tts-btn{width:100%;justify-content:center}
+}
+
+@media (pointer: coarse) {
+  .msg-tts-btn{min-height:50px;padding:12px 18px;font-size:15px}
+  .msg-tts-btn svg{width:22px;height:22px}
+  .btn-mic{width:54px;height:54px}
+  .btn-mic svg{width:27px;height:27px}
+  .btn-send{width:46px;height:46px}
+  .typing-inner{padding:18px 22px}
 }
 
 ::-webkit-scrollbar{width:4px}
@@ -368,6 +389,16 @@ body.dark .input-wrap:focus-within{border-color:var(--text3)}
     </div>
     <h1>Xin chào, hôm nay tôi có thể hỗ trợ bạn điều gì?</h1>
     <p>Hãy hỏi về triệu chứng, thuốc, bệnh lý hoặc tư vấn chăm sóc sức khỏe tổng quát.</p>
+    <div class="welcome-patient-card">
+      <h2>Bắt đầu nhanh với hồ sơ bệnh nhân</h2>
+      <div class="welcome-patient-row">
+        <select id="welcome-patient-select" class="welcome-patient-select" title="Chọn bệnh nhân">
+          <option value="" disabled selected>Đang tải bệnh nhân…</option>
+        </select>
+        <button type="button" id="welcome-start-chat-btn" class="welcome-start-btn" disabled>Bắt đầu chat</button>
+      </div>
+      <div class="welcome-patient-hint" id="welcome-patient-hint">Chọn hồ sơ để bắt đầu hội thoại chính xác hơn.</div>
+    </div>
     <div class="welcome-chips">
       <div class="chip" onclick="sendChip(this)">Những triệu chứng này có ý nghĩa gì?</div>
       <div class="chip" onclick="sendChip(this)">Giải thích kết quả xét nghiệm của tôi</div>
@@ -524,7 +555,9 @@ function addToSidebar(text){
       return;
     }
     try{
-      if(localStorage.getItem(STORAGE) === "1") body.classList.add("conv-panel-collapsed");
+      const saved = localStorage.getItem(STORAGE);
+      // Default UX: desktop starts with sidebar collapsed unless user chose otherwise.
+      if(saved === null || saved === "1") body.classList.add("conv-panel-collapsed");
       else body.classList.remove("conv-panel-collapsed");
     }catch(_){}
   }
@@ -593,28 +626,6 @@ function addToSidebar(text){
   if (!btn) return;
 
   const ref = document.referrer || "";
-  let canShow = false;
-
-  if (ref) {
-    try {
-      const refOrigin = new URL(ref).origin;
-      if (refOrigin !== window.location.origin) {
-        canShow = true;
-      }
-    } catch (_) {}
-  }
-
-  // Nhiều trang mở tab mới với chính sách chặn referrer,
-  // khi đó vẫn cho hiện nút nếu có lịch sử hoặc có opener.
-  if (!canShow && window.history.length > 1) {
-    canShow = true;
-  }
-  if (!canShow && window.opener && !window.opener.closed) {
-    canShow = true;
-  }
-  if (!canShow) return;
-
-  btn.style.display = "inline-flex";
   btn.addEventListener("click", () => {
     if (window.history.length > 1) {
       window.history.back();
@@ -626,7 +637,9 @@ function addToSidebar(text){
     }
     if (window.opener && !window.opener.closed) {
       window.close();
+      return;
     }
+    window.location.href = ref || "/";
   });
 })();
 </script>

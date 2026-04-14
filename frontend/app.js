@@ -24,7 +24,7 @@ function resolveApiBase() {
 const API_BASE = resolveApiBase();
 
 /** Idle status when not loading / no error. */
-const STATUS_IDLE = "Ready";
+const STATUS_IDLE = "Sẵn sàng";
 
 const state = {
   patientId: null,
@@ -41,6 +41,9 @@ const state = {
 
 // Chat UI with separate form/selector — skip init if elements are missing.
 const patientSelect = document.getElementById("patient-select");
+const welcomePatientSelect = document.getElementById("welcome-patient-select");
+const welcomeStartBtn = document.getElementById("welcome-start-chat-btn");
+const welcomePatientHint = document.getElementById("welcome-patient-hint");
 const messagesEl = document.getElementById("messages");
 const welcomeScreen = document.getElementById("welcomeScreen");
 const convListEl = document.getElementById("convList");
@@ -91,7 +94,7 @@ function setSending(v) {
   state.sending = v;
   if (sendBtn) sendBtn.disabled = v;
   if (statusText) {
-    statusText.textContent = v ? "Composing reply…" : STATUS_IDLE;
+    statusText.textContent = v ? "Đang soạn trả lời…" : STATUS_IDLE;
   }
 }
 
@@ -264,7 +267,7 @@ async function playTtsForText(text, buttonEl) {
   if (buttonEl) {
     buttonEl.disabled = true;
   }
-  if (statusText) statusText.textContent = "Generating speech…";
+  if (statusText) statusText.textContent = "Đang tạo giọng đọc…";
   try {
     const voice =
       (document.getElementById("tts-voice-select") || {}).value || null;
@@ -346,9 +349,9 @@ function appendMessage(role, content, createdAt) {
     const ttsBtn = document.createElement("button");
     ttsBtn.type = "button";
     ttsBtn.className = "msg-tts-btn";
-    ttsBtn.title = "Read aloud (TTS)";
+    ttsBtn.title = "Đọc bằng giọng nói (TTS)";
     ttsBtn.innerHTML =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg><span>Listen</span>';
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg><span>Nghe</span>';
     ttsBtn.addEventListener("click", () => playTtsForText(content, ttsBtn));
     ttsRow.appendChild(ttsBtn);
     row.appendChild(ttsRow);
@@ -451,37 +454,119 @@ function renderConversation(messages) {
   }
 }
 
+function syncPatientSelectUi(patientId) {
+  const value = patientId || "";
+  if (patientSelect && patientSelect.value !== value) patientSelect.value = value;
+  if (welcomePatientSelect && welcomePatientSelect.value !== value) {
+    welcomePatientSelect.value = value;
+  }
+  if (welcomeStartBtn) welcomeStartBtn.disabled = !value;
+}
+
+async function activatePatient(patientId) {
+  const value = (patientId || "").toString().trim();
+  if (!value) {
+    state.patientId = null;
+    state.conversationId = null;
+    state.conversations = [];
+    renderConversationList([]);
+    if (messagesEl) {
+      messagesEl.innerHTML = "";
+      messagesEl.style.display = "none";
+    }
+    if (welcomeScreen) welcomeScreen.style.display = "flex";
+    if (statusText) statusText.textContent = "Hãy chọn hồ sơ bệnh nhân để bắt đầu.";
+    syncPatientSelectUi("");
+    return;
+  }
+
+  state.patientId = value;
+  state.conversationId = null;
+  state.conversations = [];
+  renderConversationList([]);
+  if (messagesEl) {
+    messagesEl.innerHTML = "";
+    messagesEl.style.display = "none";
+  }
+  if (welcomeScreen) welcomeScreen.style.display = "flex";
+  syncPatientSelectUi(value);
+  if (statusText) statusText.textContent = "Đang tải lịch sử hội thoại…";
+
+  try {
+    await loadConversationsForPatient();
+    if (statusText) statusText.textContent = STATUS_IDLE;
+  } catch (err) {
+    console.error(err);
+    if (statusText) statusText.textContent = "Không tải được lịch sử hội thoại.";
+  }
+}
+
 async function loadPatients() {
   if (!patientSelect) return;
   const list = await api("/patients");
   patientSelect.innerHTML = "";
+  if (welcomePatientSelect) welcomePatientSelect.innerHTML = "";
 
   if (!list.length) {
     const opt = document.createElement("option");
     opt.value = "";
-    opt.textContent = "No patients yet (create in backend)";
+    opt.textContent = "Chưa có hồ sơ bệnh nhân";
     opt.disabled = true;
     opt.selected = true;
     patientSelect.appendChild(opt);
+    if (welcomePatientSelect) {
+      const wOpt = opt.cloneNode(true);
+      welcomePatientSelect.appendChild(wOpt);
+      welcomePatientSelect.disabled = true;
+    }
+    if (welcomeStartBtn) welcomeStartBtn.disabled = true;
+    if (welcomePatientHint) {
+      welcomePatientHint.textContent = "Vui lòng tạo bệnh nhân ở backend trước khi chat.";
+    }
     state.patientId = null;
     return;
   }
 
   const placeholder = document.createElement("option");
   placeholder.value = "";
-  placeholder.textContent = "Select patient";
+  placeholder.textContent = "Chọn bệnh nhân";
   placeholder.disabled = true;
   placeholder.selected = true;
   patientSelect.appendChild(placeholder);
+  if (welcomePatientSelect) {
+    const welcomePlaceholder = placeholder.cloneNode(true);
+    welcomePlaceholder.textContent = "Chọn bệnh nhân để bắt đầu chat";
+    welcomePatientSelect.appendChild(welcomePlaceholder);
+    welcomePatientSelect.disabled = false;
+  }
 
   for (const p of list) {
     const opt = document.createElement("option");
     opt.value = p.id;
-    opt.textContent = p.full_name || "Patient " + p.id.slice(0, 5);
+    opt.textContent = p.full_name || "Bệnh nhân " + p.id.slice(0, 5);
     patientSelect.appendChild(opt);
+    if (welcomePatientSelect) {
+      const wOpt = document.createElement("option");
+      wOpt.value = p.id;
+      wOpt.textContent = opt.textContent;
+      welcomePatientSelect.appendChild(wOpt);
+    }
   }
 
   state.patientId = null;
+  state.conversationId = null;
+  state.conversations = [];
+  renderConversationList([]);
+  if (messagesEl) {
+    messagesEl.innerHTML = "";
+    messagesEl.style.display = "none";
+  }
+  if (welcomeScreen) welcomeScreen.style.display = "flex";
+  syncPatientSelectUi("");
+  if (welcomePatientHint) {
+    welcomePatientHint.textContent = "Chọn bệnh nhân để bắt đầu hội thoại.";
+  }
+  if (statusText) statusText.textContent = "Hãy chọn hồ sơ bệnh nhân để bắt đầu.";
 }
 
 function showMessagesView() {
@@ -521,7 +606,7 @@ async function backendSendMessage(rawText) {
   if (!text) return;
    if (!state.patientId) {
     if (statusText) {
-      statusText.textContent = "No patient selected";
+      statusText.textContent = "Chưa chọn bệnh nhân";
     }
     return;
   }
@@ -617,28 +702,25 @@ if (formEl && promptEl) {
 if (patientSelect) {
   patientSelect.addEventListener("change", async (e) => {
     const value = e.target.value;
-    if (!value) {
-      state.patientId = null;
-      state.conversationId = null;
-      state.conversations = [];
-      renderConversationList([]);
-      if (messagesEl) { messagesEl.innerHTML = ""; messagesEl.style.display = "none"; }
-      if (welcomeScreen) welcomeScreen.style.display = "flex";
-      if (statusText) statusText.textContent = STATUS_IDLE;
+    await activatePatient(value);
+  });
+}
+
+if (welcomePatientSelect) {
+  welcomePatientSelect.addEventListener("change", async (e) => {
+    await activatePatient(e.target.value);
+  });
+}
+
+if (welcomeStartBtn) {
+  welcomeStartBtn.addEventListener("click", () => {
+    if (!state.patientId) {
+      if (statusText) statusText.textContent = "Hãy chọn bệnh nhân trước khi bắt đầu.";
       return;
     }
-    state.patientId = value;
-    state.conversationId = null;
-    state.conversations = [];
-    renderConversationList([]);
-    if (messagesEl) { messagesEl.innerHTML = ""; }
-    if (welcomeScreen) welcomeScreen.style.display = "flex";
-    if (messagesEl) messagesEl.style.display = "none";
-    try {
-      await loadConversationsForPatient();
-    } catch (err) {
-      console.error(err);
-    }
+    const inputField = document.getElementById("inputField");
+    if (inputField && typeof inputField.focus === "function") inputField.focus();
+    if (statusText) statusText.textContent = "Bạn có thể nhập câu hỏi ngay bây giờ.";
   });
 }
 
@@ -703,13 +785,13 @@ if (patientSelect) {
       if (!window.isSecureContext && !/^localhost$|^127\./.test(location.hostname)) {
         if (statusText) {
           statusText.textContent =
-            "Mic/STT needs HTTPS or localhost — open via http://127.0.0.1:8000/static/...";
+            "Mic/STT cần HTTPS hoặc localhost — hãy mở qua http://127.0.0.1:8000/static/...";
         }
       }
     } catch (err) {
       console.error(err);
       if (statusText) {
-        statusText.textContent = "Could not reach the API backend.";
+        statusText.textContent = "Không kết nối được backend API.";
       }
     }
   })();
@@ -731,7 +813,7 @@ function setMicUiState({ recording = false, disabled = false } = {}) {
 async function backendSendAudio(blob) {
   if (state.voiceSending) return;
   if (!state.patientId) {
-    if (statusText) statusText.textContent = "No patient selected";
+    if (statusText) statusText.textContent = "Chưa chọn bệnh nhân";
     return;
   }
   const requestId = ++state.activeAudioRequestId;
@@ -756,7 +838,7 @@ async function backendSendAudio(blob) {
   }
   fd.append("include_tts", "false");
   if (!blob || blob.size < 16) {
-    if (statusText) statusText.textContent = "Recording too short — speak a bit longer.";
+    if (statusText) statusText.textContent = "Bản ghi quá ngắn, hãy nói thêm một chút.";
     setSending(false);
     return;
   }
@@ -833,7 +915,7 @@ async function toggleVoiceRecord() {
     return;
   }
   if (!state.patientId) {
-    if (statusText) statusText.textContent = "No patient selected";
+    if (statusText) statusText.textContent = "Chưa chọn bệnh nhân";
     return;
   }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
