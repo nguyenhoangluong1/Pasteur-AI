@@ -30,6 +30,17 @@ class Settings(BaseSettings):
     # Tên model theo SDK mới `google-genai` (client tự thêm tiền tố `models/`)
     # Có thể override bằng biến môi trường GEMINI_MODEL nếu muốn.
     gemini_model: str = "gemini-2.5-flash-lite"
+    # Routing LLM:
+    # - api_only: luôn dùng Gemini (mặc định, phù hợp Render free tier)
+    # - local_only: chỉ dùng local model
+    # - hybrid: ưu tiên local, lỗi thì fallback Gemini
+    llm_router_mode: str = "api_only"
+    local_llm_enabled: bool = False
+    # Endpoint local OpenAI-compatible, ví dụ:
+    # http://127.0.0.1:11434/v1/chat/completions
+    local_llm_endpoint: str | None = None
+    local_llm_model: str = "qwen2.5:3b-instruct"
+    local_llm_timeout_seconds: int = 20
 
     # TTS (edge-tts — giong tieng Viet, khong can API key)
     tts_voice: str = "vi-VN-HoaiMyNeural"

@@ -4,6 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.api.deps import get_db
@@ -72,6 +73,51 @@ def _messages_to_schema(conv) -> list[ChatMessage]:
             )
         )
     return out
+
+
+def _extract_stt_hints(patient: Patient, db: Session) -> list[str]:
+    hints: list[str] = []
+    if patient.full_name:
+        hints.append(patient.full_name)
+
+    cfg = db.execute(
+        text(
+            """
+        SELECT chronic_conditions, current_medications
+        FROM public.patient_medical_config
+        WHERE patient_id = :patient_id AND is_active = true
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """
+        ),
+        {"patient_id": patient.id},
+    ).mappings().first()
+    if not cfg:
+        return hints
+
+    chronic = cfg.get("chronic_conditions") or []
+    if isinstance(chronic, list):
+        hints.extend(str(item) for item in chronic if item)
+
+    meds = cfg.get("current_medications") or []
+    if isinstance(meds, list):
+        for med in meds:
+            if isinstance(med, dict):
+                name = med.get("name")
+                if name:
+                    hints.append(str(name))
+    # Keep hints concise to improve STT latency.
+    seen: set[str] = set()
+    compact: list[str] = []
+    for h in hints:
+        key = h.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        compact.append(h.strip())
+        if len(compact) >= 10:
+            break
+    return compact
 
 
 @router.post("", response_model=ChatResponse)
@@ -161,9 +207,10 @@ def chat_audio(
 
     audio_bytes = audio.file.read() if audio.file else b""
     mime = audio.content_type or "audio/webm"
+    stt_hints = _extract_stt_hints(patient, db)
 
     try:
-        transcript = transcribe_audio(audio_bytes, mime)
+        transcript = transcribe_audio(audio_bytes, mime, domain_hints=stt_hints)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"STT failed: {exc}") from exc
 

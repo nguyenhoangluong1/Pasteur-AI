@@ -26,10 +26,20 @@ Giao diện chat: mở `http://127.0.0.1:8000/app/` (mic/STT cần HTTPS hoặc 
 | `GEMINI_API_KEY` hoặc `GOOGLE_API_KEY` | Bắt buộc cho chat + STT |
 | `DATABASE_URL` *hoặc* `SUPABASE_*` | DB; không set thì dùng SQLite local |
 | `GEMINI_MODEL` | Tuỳ chọn, mặc định `gemini-2.5-flash` |
+| `LLM_ROUTER_MODE`, `LOCAL_LLM_*` | Tuỳ chọn offline mode (Qwen2.5-3B local); mặc định vẫn API |
 | `TTS_*` | Giọng / giới hạn ký tự TTS (edge-tts) |
 | `RAG_*` | Bật/tắt và tham số RAG |
 
 Chi tiết mẫu: xem [`.env.example`](.env.example).
+
+### Offline mode (optional extension)
+
+- Mặc định hệ thống chạy `LLM_ROUTER_MODE=api_only` (Gemini), phù hợp môi trường như Render free tier.
+- Có thể bật local model (ví dụ Qwen2.5-3B) khi chạy trên máy cá nhân:
+  - `LOCAL_LLM_ENABLED=true`
+  - `LLM_ROUTER_MODE=local_only` hoặc `hybrid`
+  - `LOCAL_LLM_ENDPOINT=http://127.0.0.1:11434/v1/chat/completions`
+  - `LOCAL_LLM_MODEL=qwen2.5:3b-instruct`
 
 ## Security
 

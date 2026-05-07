@@ -31,6 +31,7 @@ const state = {
   conversationId: null,
   sending: false,
   conversations: [],
+  renderedConversationCount: 0,
   voiceSending: false,
   recording: false,
   activeAudioRequestId: 0,
@@ -47,7 +48,28 @@ const welcomePatientHint = document.getElementById("welcome-patient-hint");
 const messagesEl = document.getElementById("messages");
 const welcomeScreen = document.getElementById("welcomeScreen");
 const convListEl = document.getElementById("convList");
+const CONVERSATION_PAGE_SIZE = 12;
+
+function shouldLoadMoreConversations() {
+  if (!convListEl) return false;
+  return convListEl.scrollTop + convListEl.clientHeight >= convListEl.scrollHeight - 24;
+}
+
+function loadMoreConversations() {
+  if (!Array.isArray(state.conversations) || state.renderedConversationCount >= state.conversations.length) {
+    return;
+  }
+  state.renderedConversationCount = Math.min(
+    state.renderedConversationCount + CONVERSATION_PAGE_SIZE,
+    state.conversations.length
+  );
+  renderConversationList(state.conversations);
+}
+
 if (convListEl) {
+  convListEl.addEventListener("scroll", () => {
+    if (shouldLoadMoreConversations()) loadMoreConversations();
+  });
   convListEl.addEventListener("click", (e) => {
     if (!e.target.closest(".conv-item")) return;
     if (window.matchMedia("(max-width: 720px)").matches) {
@@ -187,15 +209,129 @@ async function playAudioFromBlob(blob, playbackId) {
   console.info("[TTS] blob playback started", { playbackId });
 }
 
-async function playAudioFromReadableStream(res, playbackId, mimeType = "audio/mpeg") {
-  // Audio-first ưu tiên độ ổn định: nhận full blob rồi play (tránh MSE/mp3 lỗi decode).
-  console.info("[TTS] stream mode", { canStream: false, mimeType, playbackId });
-  const blob = await res.blob();
-  console.info("[TTS] stream -> blob", {
-    size: blob?.size || 0,
-    type: blob?.type || "unknown",
-    playbackId,
+function canStreamMp3WithMediaSource() {
+  if (typeof window === "undefined") return false;
+  if (!("MediaSource" in window)) return false;
+  if (typeof MediaSource.isTypeSupported !== "function") return false;
+  return (
+    MediaSource.isTypeSupported("audio/mpeg") ||
+    MediaSource.isTypeSupported("audio/mp3") ||
+    MediaSource.isTypeSupported("audio/mpeg; codecs=\"mp3\"")
+  );
+}
+
+async function playAudioFromReadableStreamViaMse(res, playbackId) {
+  const mediaSource = new MediaSource();
+  const streamUrl = URL.createObjectURL(mediaSource);
+  stopActiveAudio();
+
+  const player = new Audio(streamUrl);
+  player.__blobUrl = streamUrl;
+  window.__pasteurAudioPlayer = player;
+
+  const mimeType = MediaSource.isTypeSupported("audio/mpeg")
+    ? "audio/mpeg"
+    : MediaSource.isTypeSupported("audio/mp3")
+      ? "audio/mp3"
+      : "audio/mpeg; codecs=\"mp3\"";
+
+  const reader = res.body.getReader();
+
+  await new Promise((resolve, reject) => {
+    mediaSource.addEventListener(
+      "sourceopen",
+      () => {
+        let sourceBuffer;
+        let appending = false;
+        let streamDone = false;
+        const pendingChunks = [];
+
+        const flushQueue = () => {
+          if (!sourceBuffer || appending || sourceBuffer.updating) return;
+          if (!pendingChunks.length) {
+            if (streamDone && mediaSource.readyState === "open") {
+              try {
+                mediaSource.endOfStream();
+              } catch (_) {}
+              resolve();
+            }
+            return;
+          }
+          appending = true;
+          const next = pendingChunks.shift();
+          try {
+            sourceBuffer.appendBuffer(next);
+          } catch (err) {
+            reject(err);
+          }
+        };
+
+        try {
+          sourceBuffer = mediaSource.addSourceBuffer(mimeType);
+          sourceBuffer.mode = "sequence";
+        } catch (err) {
+          reject(err);
+          return;
+        }
+
+        sourceBuffer.addEventListener("updateend", () => {
+          appending = false;
+          flushQueue();
+        });
+        sourceBuffer.addEventListener("error", () => {
+          reject(new Error("SourceBuffer error"));
+        });
+
+        player
+          .play()
+          .catch((err) => {
+            if (!isExpectedPlayInterrupt(err)) reject(err);
+          });
+
+        const pump = async () => {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              streamDone = true;
+              flushQueue();
+              break;
+            }
+            if (playbackId !== state.activeTtsPlaybackId) {
+              try {
+                await reader.cancel();
+              } catch (_) {}
+              resolve();
+              break;
+            }
+            if (value && value.byteLength) {
+              pendingChunks.push(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+              flushQueue();
+            }
+          }
+        };
+
+        pump().catch(reject);
+      },
+      { once: true }
+    );
   });
+
+  console.info("[TTS] MSE stream playback started", { playbackId, mimeType });
+}
+
+async function playAudioFromReadableStream(res, playbackId, mimeType = "audio/mpeg") {
+  const canStream = canStreamMp3WithMediaSource() && !!res.body;
+  console.info("[TTS] stream mode", { canStream, mimeType, playbackId });
+  if (canStream) {
+    try {
+      await playAudioFromReadableStreamViaMse(res, playbackId);
+      return;
+    } catch (streamErr) {
+      console.warn("[TTS] MSE stream failed, fallback to blob", streamErr);
+    }
+  }
+  const blob = await res.blob();
+  console.info("[TTS] stream -> blob", { size: blob?.size || 0, type: blob?.type || "unknown", playbackId });
   if (!blob || blob.size === 0) throw new Error("Audio stream trả về rỗng");
   await playAudioFromBlob(blob, playbackId);
 }
@@ -385,8 +521,21 @@ function createTypingIndicator() {
 
 function renderConversationList(conversations) {
   if (!convListEl) return;
+  const list = Array.isArray(conversations) ? conversations : [];
+  const hasActiveConversation = list.some((c) => c.id === state.conversationId);
+  if (hasActiveConversation) {
+    const activeIndex = list.findIndex((c) => c.id === state.conversationId);
+    const requiredVisibleCount = activeIndex + 1;
+    state.renderedConversationCount = Math.max(
+      state.renderedConversationCount || CONVERSATION_PAGE_SIZE,
+      requiredVisibleCount
+    );
+  } else if (!state.renderedConversationCount) {
+    state.renderedConversationCount = CONVERSATION_PAGE_SIZE;
+  }
+  const visibleCount = Math.min(state.renderedConversationCount, list.length);
   convListEl.innerHTML = "";
-  for (const c of conversations) {
+  for (const c of list.slice(0, visibleCount)) {
     const item = document.createElement("div");
     item.className = "conv-item";
     if (c.id === state.conversationId) {
@@ -462,6 +611,7 @@ async function activatePatient(patientId) {
     state.patientId = null;
     state.conversationId = null;
     state.conversations = [];
+    state.renderedConversationCount = CONVERSATION_PAGE_SIZE;
     renderConversationList([]);
     if (messagesEl) {
       messagesEl.innerHTML = "";
@@ -476,6 +626,7 @@ async function activatePatient(patientId) {
   state.patientId = value;
   state.conversationId = null;
   state.conversations = [];
+  state.renderedConversationCount = CONVERSATION_PAGE_SIZE;
   renderConversationList([]);
   if (messagesEl) {
     messagesEl.innerHTML = "";
@@ -549,6 +700,7 @@ async function loadPatients() {
   state.patientId = null;
   state.conversationId = null;
   state.conversations = [];
+  state.renderedConversationCount = CONVERSATION_PAGE_SIZE;
   renderConversationList([]);
   if (messagesEl) {
     messagesEl.innerHTML = "";
@@ -573,6 +725,7 @@ async function loadConversationsForPatient() {
   const convs = await api(`/conversations?patient_id=${encodeURIComponent(currentPatientId)}`);
   if (state.patientId !== currentPatientId) return;
   state.conversations = convs;
+  state.renderedConversationCount = CONVERSATION_PAGE_SIZE;
   renderConversationList(convs);
   // Always start a new conversation when selecting a patient.
   state.conversationId = null;
@@ -597,6 +750,10 @@ window.chatResetConversation = function () {
 async function backendSendMessage(rawText) {
   const text = (rawText ?? "").toString().trim();
   if (!text) return;
+  // Ensure voice/text paths both switch from welcome to chat timeline.
+  if (welcomeScreen && welcomeScreen.style.display !== "none") {
+    showMessagesView();
+  }
    if (!state.patientId) {
     if (statusText) {
       statusText.textContent = "Chưa chọn bệnh nhân";
@@ -795,6 +952,102 @@ let voiceRecorder = null;
 let voiceChunks = [];
 let voiceStream = null;
 let recordingStartedAt = 0;
+let speechRecognition = null;
+let speechActive = false;
+let speechFinalText = "";
+let speechStoppedByUser = false;
+
+function getSpeechRecognitionCtor() {
+  if (typeof window === "undefined") return null;
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+function normalizeTranscriptText(value) {
+  return (value || "").replace(/\s+/g, " ").trim();
+}
+
+function canUseBrowserSpeechRecognition() {
+  return !!getSpeechRecognitionCtor();
+}
+
+function stopBrowserSpeechRecognition() {
+  if (!speechRecognition || !speechActive) return;
+  speechStoppedByUser = true;
+  try {
+    speechRecognition.stop();
+  } catch (_) {}
+}
+
+async function startBrowserSpeechRecognition() {
+  const Ctor = getSpeechRecognitionCtor();
+  if (!Ctor) return false;
+
+  if (speechRecognition && speechActive) return true;
+  speechFinalText = "";
+  speechStoppedByUser = false;
+
+  const recognition = new Ctor();
+  speechRecognition = recognition;
+  recognition.lang = "vi-VN";
+  recognition.interimResults = true;
+  recognition.continuous = false;
+  recognition.maxAlternatives = 1;
+
+  recognition.onstart = () => {
+    speechActive = true;
+    state.recording = true;
+    setMicUiState({ recording: true, disabled: false });
+    if (statusText) statusText.textContent = "Đang nghe… nói xong có thể bấm mic để dừng.";
+  };
+
+  recognition.onresult = (event) => {
+    let finalText = "";
+    let interimText = "";
+    for (let i = event.resultIndex; i < event.results.length; i += 1) {
+      const text = event.results[i]?.[0]?.transcript || "";
+      if (event.results[i].isFinal) finalText += text + " ";
+      else interimText += text + " ";
+    }
+    if (finalText) speechFinalText += finalText;
+    const preview = normalizeTranscriptText(speechFinalText || interimText);
+    if (preview && statusText) statusText.textContent = "Đã nghe: " + preview;
+  };
+
+  recognition.onerror = () => {
+    speechActive = false;
+    state.recording = false;
+    setMicUiState({ recording: false, disabled: false });
+    if (statusText) statusText.textContent = "Nhận diện giọng nói trình duyệt lỗi, chuyển sang chế độ ghi âm.";
+  };
+
+  recognition.onend = async () => {
+    speechActive = false;
+    state.recording = false;
+    setMicUiState({ recording: false, disabled: false });
+    const transcript = normalizeTranscriptText(speechFinalText);
+    speechFinalText = "";
+    if (speechStoppedByUser && !transcript) {
+      if (statusText) statusText.textContent = STATUS_IDLE;
+      speechStoppedByUser = false;
+      return;
+    }
+    if (!transcript) {
+      if (statusText) statusText.textContent = "Không nghe rõ, thử nói gần mic hơn.";
+      speechStoppedByUser = false;
+      return;
+    }
+    speechStoppedByUser = false;
+    if (statusText) statusText.textContent = "Đang gửi nội dung giọng nói…";
+    await backendSendMessage(transcript);
+  };
+
+  try {
+    recognition.start();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
 
 function setMicUiState({ recording = false, disabled = false } = {}) {
   const micBtn = document.getElementById("micBtn");
@@ -903,6 +1156,10 @@ async function backendSendAudio(blob) {
 async function toggleVoiceRecord() {
   primeAudioOutputFromGesture();
   if (state.sending || state.voiceSending) return;
+  if (speechActive) {
+    stopBrowserSpeechRecognition();
+    return;
+  }
   if (voiceRecorder && voiceRecorder.state === "recording") {
     voiceRecorder.stop();
     return;
@@ -918,6 +1175,10 @@ async function toggleVoiceRecord() {
     }
     return;
   }
+  if (canUseBrowserSpeechRecognition()) {
+    const started = await startBrowserSpeechRecognition();
+    if (started) return;
+  }
   try {
     if (voiceStream) {
       voiceStream.getTracks().forEach((t) => t.stop());
@@ -929,6 +1190,8 @@ async function toggleVoiceRecord() {
         noiseSuppression: true,
         autoGainControl: true,
         channelCount: 1,
+        sampleRate: 16000,
+        sampleSize: 16,
       },
     });
     const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
