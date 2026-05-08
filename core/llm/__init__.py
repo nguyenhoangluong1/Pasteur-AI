@@ -7,9 +7,11 @@ Optional extension: local/offline model (e.g. Qwen2.5-3B) via HTTP endpoint.
 from __future__ import annotations
 
 import json
+import threading
 from urllib import request
 
 from google import genai
+from google.genai.errors import ClientError, ServerError
 
 from core.config import get_settings
 
@@ -22,19 +24,64 @@ class _SimpleResponse:
 
 
 class _GeminiWrapper:
-    def __init__(self, client: genai.Client, model: str):
+    def __init__(
+        self,
+        client: genai.Client,
+        model: str,
+        *,
+        alternate_model: str | None = None,
+        round_robin: bool = False,
+    ):
         self._client = client
         self._model = model
+        self._alternate_model = alternate_model
+        self._round_robin = bool(round_robin and alternate_model and alternate_model != model)
+        self._rr_counter = 0
+        self._rr_lock = threading.Lock()
+        self._fallback_model = "gemini-2.5-flash"
+
+    def _pick_model(self) -> str:
+        if not self._round_robin:
+            return self._model
+        with self._rr_lock:
+            selected = self._model if self._rr_counter % 2 == 0 else self._alternate_model
+            self._rr_counter += 1
+        return selected or self._model
 
     def generate_content(self, contents, system_instruction=None):
         kwargs = {}
         if system_instruction is not None:
             kwargs["config"] = {"system_instruction": system_instruction}
-        return self._client.models.generate_content(
-            model=self._model,
-            contents=contents,
-            **kwargs,
-        )
+        selected_model = self._pick_model()
+        try:
+            return self._client.models.generate_content(
+                model=selected_model,
+                contents=contents,
+                **kwargs,
+            )
+        except ClientError as exc:
+            # Handle unsupported / unavailable model slug for current API key.
+            text = str(exc).lower()
+            should_fallback = (
+                selected_model != self._fallback_model
+                and ("not found" in text or "not supported" in text)
+            )
+            if not should_fallback:
+                raise
+            return self._client.models.generate_content(
+                model=self._fallback_model,
+                contents=contents,
+                **kwargs,
+            )
+        except ServerError:
+            # Some Gemma endpoints can intermittently return 500.
+            if selected_model == self._fallback_model:
+                raise
+            return self._client.models.generate_content(
+                model=self._fallback_model,
+                contents=contents,
+                **kwargs,
+            )
 
 
 class _LocalOpenAICompatWrapper:
@@ -90,8 +137,14 @@ def _build_gemini_wrapper():
     if not getattr(settings, "gemini_api_key", None):
         raise RuntimeError("GEMINI_API_KEY is not configured in settings/.env")
     client = genai.Client(api_key=settings.gemini_api_key)
-    model_name = getattr(settings, "gemini_model", "gemini-2.5-flash-lite")
-    return _GeminiWrapper(client, model_name)
+    model_name = settings.resolved_chat_model
+    alternate_name = settings.resolved_chat_alternate_model
+    return _GeminiWrapper(
+        client,
+        model_name,
+        alternate_model=alternate_name,
+        round_robin=getattr(settings, "chat_model_round_robin", False),
+    )
 
 
 def _build_local_wrapper():

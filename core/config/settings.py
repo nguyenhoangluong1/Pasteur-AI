@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     stt_timeout_seconds: int = 20
     stt_retry_attempts: int = 2
     voice_max_audio_bytes: int = 5 * 1024 * 1024
+    chat_model_round_robin: bool = False
     # Routing LLM:
     # - api_only: luôn dùng Gemini (mặc định, phù hợp Render free tier)
     # - local_only: chỉ dùng local model
@@ -58,6 +59,37 @@ class Settings(BaseSettings):
     rag_top_k: int = 4
     rag_index_interval_seconds: int = 300
     rag_max_records_per_patient: int = 40
+
+    def _resolve_model_alias(self, model_name: str | None, default: str) -> str:
+        value = (model_name or "").strip().lower()
+        if not value:
+            return default
+        aliases = {
+            "flash": "gemini-2.5-flash",
+            "2.5-flash": "gemini-2.5-flash",
+            "flash_lite": "gemini-2.5-flash-lite",
+            "flash-lite": "gemini-2.5-flash-lite",
+            "2.5-flash-lite": "gemini-2.5-flash-lite",
+        }
+        return aliases.get(value, (model_name or default).strip())
+
+    @property
+    def resolved_chat_model(self) -> str:
+        return self._resolve_model_alias(self.gemini_model, "gemini-2.5-flash")
+
+    @property
+    def resolved_stt_model(self) -> str:
+        source = self.stt_model if self.stt_model else self.gemini_model
+        return self._resolve_model_alias(source, "gemini-2.5-flash")
+
+    @property
+    def resolved_chat_alternate_model(self) -> str:
+        primary = self.resolved_chat_model
+        if primary == "gemini-2.5-flash":
+            return "gemini-2.5-flash-lite"
+        if primary == "gemini-2.5-flash-lite":
+            return "gemini-2.5-flash"
+        return "gemini-2.5-flash-lite"
 
     @property
     def resolved_database_url(self) -> str:

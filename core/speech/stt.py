@@ -46,7 +46,7 @@ def transcribe_audio(
 
     mime = _normalize_mime(mime_type or "audio/webm")
     client = _get_stt_client(settings.gemini_api_key)
-    model = (settings.stt_model or settings.gemini_model).strip()
+    model = settings.resolved_stt_model
     timeout_seconds = max(1, int(getattr(settings, "stt_timeout_seconds", 20)))
     retry_attempts = max(1, int(getattr(settings, "stt_retry_attempts", 2)))
 
