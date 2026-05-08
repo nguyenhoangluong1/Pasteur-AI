@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     # STT: tach model rieng vi Gemma chat model khong toi uu cho audio.
     stt_model: str | None = "gemini-2.5-flash"
+    stt_model_fallback_enabled: bool = True
     stt_timeout_seconds: int = 20
     stt_retry_attempts: int = 2
     voice_max_audio_bytes: int = 5 * 1024 * 1024
@@ -81,6 +82,15 @@ class Settings(BaseSettings):
     def resolved_stt_model(self) -> str:
         source = self.stt_model if self.stt_model else self.gemini_model
         return self._resolve_model_alias(source, "gemini-2.5-flash")
+
+    @property
+    def resolved_stt_alternate_model(self) -> str:
+        primary = self.resolved_stt_model
+        if primary == "gemini-2.5-flash":
+            return "gemini-2.5-flash-lite"
+        if primary == "gemini-2.5-flash-lite":
+            return "gemini-2.5-flash"
+        return "gemini-2.5-flash-lite"
 
     @property
     def resolved_chat_alternate_model(self) -> str:

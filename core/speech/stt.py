@@ -10,6 +10,7 @@ from functools import lru_cache
 
 from google import genai
 from google.genai import types
+from google.genai.errors import ClientError
 
 from core.config import get_settings
 
@@ -47,6 +48,12 @@ def transcribe_audio(
     mime = _normalize_mime(mime_type or "audio/webm")
     client = _get_stt_client(settings.gemini_api_key)
     model = settings.resolved_stt_model
+    fallback_model = settings.resolved_stt_alternate_model
+    fallback_enabled = bool(
+        getattr(settings, "stt_model_fallback_enabled", True)
+        and fallback_model
+        and fallback_model != model
+    )
     timeout_seconds = max(1, int(getattr(settings, "stt_timeout_seconds", 20)))
     retry_attempts = max(1, int(getattr(settings, "stt_retry_attempts", 2)))
 
@@ -69,9 +76,9 @@ def transcribe_audio(
         + hint_block
     )
 
-    def _generate_once() -> str:
+    def _generate_once(model_name: str) -> str:
         response = client.models.generate_content(
-            model=model,
+            model=model_name,
             contents=[
                 types.Part.from_text(text=prompt),
                 types.Part.from_bytes(data=audio_bytes, mime_type=mime),
@@ -87,8 +94,9 @@ def transcribe_audio(
 
     last_error: Exception | None = None
     for attempt in range(1, retry_attempts + 1):
+        current_model = model
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(_generate_once)
+        future = executor.submit(_generate_once, current_model)
         try:
             result = future.result(timeout=timeout_seconds)
             executor.shutdown(wait=False, cancel_futures=True)
@@ -100,6 +108,24 @@ def transcribe_audio(
             future.cancel()
             # Do not block current request while background worker finishes.
             executor.shutdown(wait=False, cancel_futures=True)
+        except ClientError as exc:
+            last_error = exc
+            executor.shutdown(wait=False, cancel_futures=True)
+            text = str(exc).lower()
+            should_switch_model = (
+                fallback_enabled
+                and (
+                    "quota" in text
+                    or "resource_exhausted" in text
+                    or "rate limit" in text
+                    or "429" in text
+                    or "not found" in text
+                    or "not supported" in text
+                )
+            )
+            if should_switch_model:
+                model = fallback_model
+                fallback_enabled = False
         except Exception as exc:
             last_error = exc
             executor.shutdown(wait=False, cancel_futures=True)
