@@ -28,10 +28,22 @@ async def synthesize_speech_chunks_async(text: str, voice: str | None = None):
     raw, v = _normalize_tts_input(text, voice=voice)
     if not raw:
         return
+    settings = get_settings()
+    timeout_seconds = max(1, int(getattr(settings, "tts_timeout_seconds", 20)))
     communicate = edge_tts.Communicate(raw, v)
-    async for chunk in communicate.stream():
-        if chunk["type"] == "audio":
-            yield chunk["data"]
+
+    async def _stream_audio():
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                yield chunk["data"]
+
+    agen = _stream_audio()
+    while True:
+        try:
+            chunk = await asyncio.wait_for(agen.__anext__(), timeout=timeout_seconds)
+        except StopAsyncIteration:
+            break
+        yield chunk
 
 
 async def synthesize_speech_async(
@@ -55,4 +67,8 @@ async def synthesize_speech_async(
 
 def synthesize_speech_sync(text: str, voice: str | None = None) -> tuple[bytes, str]:
     """Chay TTS dong bo (dung trong FastAPI sync route)."""
-    return asyncio.run(synthesize_speech_async(text, voice=voice))
+    settings = get_settings()
+    timeout_seconds = max(1, int(getattr(settings, "tts_timeout_seconds", 20)))
+    return asyncio.run(
+        asyncio.wait_for(synthesize_speech_async(text, voice=voice), timeout_seconds)
+    )

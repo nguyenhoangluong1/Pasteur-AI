@@ -4,6 +4,8 @@ Speech-to-text: dùng Gemini multimodal (audio + prompt) với cùng GEMINI_API_
 
 from __future__ import annotations
 
+import concurrent.futures
+import time
 from functools import lru_cache
 
 from google import genai
@@ -44,7 +46,9 @@ def transcribe_audio(
 
     mime = _normalize_mime(mime_type or "audio/webm")
     client = _get_stt_client(settings.gemini_api_key)
-    model = settings.gemini_model
+    model = (settings.stt_model or settings.gemini_model).strip()
+    timeout_seconds = max(1, int(getattr(settings, "stt_timeout_seconds", 20)))
+    retry_attempts = max(1, int(getattr(settings, "stt_retry_attempts", 2)))
 
     hints = [h.strip() for h in (domain_hints or []) if h and h.strip()]
     hint_block = ""
@@ -58,24 +62,49 @@ def transcribe_audio(
     prompt = (
         "Ban la cong cu chuyen loi noi thanh chu. "
         "Nghe file audio va ghi lai DUNG loi nguoi noi bang tieng Viet. "
-        "Bo qua tap am moi truong (quat, xe, tieng tre em, tieng click, am thanh nen). "
+        "Bo qua tap am moi truong (quat, xe, tieng tre em, tieng click, am thanh nen,...). "
         "Khong doan them noi dung neu khong nghe ro. "
         "Neu co thuat ngu/ten thuoc y khoa, uu tien ghi dung chinh ta tieng Viet."
         "Chi tra ve ban ghi chu, khong giai thich, khong them dau ngoac hay tien to."
         + hint_block
     )
 
-    response = client.models.generate_content(
-        model=model,
-        contents=[
-            types.Part.from_text(text=prompt),
-            types.Part.from_bytes(data=audio_bytes, mime_type=mime),
-        ],
-        config=types.GenerateContentConfig(
-            temperature=0.0,
-        ),
-    )
-    text = (response.text or "").strip()
-    if not text:
-        raise RuntimeError("STT khong tra ve van ban")
-    return text
+    def _generate_once() -> str:
+        response = client.models.generate_content(
+            model=model,
+            contents=[
+                types.Part.from_text(text=prompt),
+                types.Part.from_bytes(data=audio_bytes, mime_type=mime),
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0.0,
+            ),
+        )
+        text = (response.text or "").strip()
+        if not text:
+            raise RuntimeError("STT khong tra ve van ban")
+        return text
+
+    last_error: Exception | None = None
+    for attempt in range(1, retry_attempts + 1):
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(_generate_once)
+        try:
+            result = future.result(timeout=timeout_seconds)
+            executor.shutdown(wait=False, cancel_futures=True)
+            return result
+        except concurrent.futures.TimeoutError:
+            last_error = RuntimeError(
+                f"STT timeout sau {timeout_seconds}s (lan {attempt}/{retry_attempts})"
+            )
+            future.cancel()
+            # Do not block current request while background worker finishes.
+            executor.shutdown(wait=False, cancel_futures=True)
+        except Exception as exc:
+            last_error = exc
+            executor.shutdown(wait=False, cancel_futures=True)
+
+        if attempt < retry_attempts:
+            time.sleep(0.4 * attempt)
+
+    raise RuntimeError(f"STT failed: {last_error}") from last_error

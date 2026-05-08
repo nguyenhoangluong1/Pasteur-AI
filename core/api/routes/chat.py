@@ -1,4 +1,7 @@
 import base64
+import logging
+import time
+import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -8,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.api.deps import get_db
+from core.config import get_settings
 from core.db.models import Patient
 from core.services.chatbot_service import chat_with_gemini
 from core.speech import transcribe_audio
@@ -15,6 +19,7 @@ from core.speech.tts import synthesize_speech_chunks_async, synthesize_speech_sy
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class ChatRequest(BaseModel):
@@ -201,16 +206,36 @@ def chat_audio(
     Gui file audio (webm/wav/mp3/...) -> STT -> chat -> TTS -> tra ve JSON + audio base64.
     Dung sync route + doc file sync de tranh dung Session SQLAlchemy sai thread.
     """
+    request_id = uuid.uuid4().hex[:8]
+    t0 = time.perf_counter()
+    t_read_done = t0
+    t_stt_done = t0
+    t_chat_done = t0
+    t_tts_done = t0
+    audio_size = 0
+    settings = get_settings()
+    max_audio_bytes = max(1024, int(getattr(settings, "voice_max_audio_bytes", 5 * 1024 * 1024)))
+
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
     audio_bytes = audio.file.read() if audio.file else b""
+    t_read_done = time.perf_counter()
+    audio_size = len(audio_bytes)
+    if audio_size == 0:
+        raise HTTPException(status_code=400, detail="Audio is empty")
+    if audio_size > max_audio_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Audio too large ({audio_size} bytes). Max allowed is {max_audio_bytes} bytes.",
+        )
     mime = audio.content_type or "audio/webm"
     stt_hints = _extract_stt_hints(patient, db)
 
     try:
         transcript = transcribe_audio(audio_bytes, mime, domain_hints=stt_hints)
+        t_stt_done = time.perf_counter()
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"STT failed: {exc}") from exc
 
@@ -221,6 +246,7 @@ def chat_audio(
             user_message=transcript,
             conversation_id=conversation_id,
         )
+        t_chat_done = time.perf_counter()
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -231,9 +257,25 @@ def chat_audio(
             audio_out, audio_mime = synthesize_speech_sync(
                 assistant_text, voice=tts_voice
             )
+            t_tts_done = time.perf_counter()
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"TTS failed: {exc}") from exc
         b64 = base64.b64encode(audio_out).decode("ascii") if audio_out else None
+
+    total_done = time.perf_counter()
+    logger.info(
+        "[VOICE_PIPELINE] request_id=%s patient_id=%s bytes=%s include_tts=%s "
+        "read_ms=%.1f stt_ms=%.1f chat_ms=%.1f tts_ms=%.1f total_ms=%.1f",
+        request_id,
+        patient_id,
+        audio_size,
+        include_tts,
+        (t_read_done - t0) * 1000,
+        (t_stt_done - t_read_done) * 1000 if t_stt_done >= t_read_done else 0.0,
+        (t_chat_done - t_stt_done) * 1000 if t_chat_done >= t_stt_done else 0.0,
+        (t_tts_done - t_chat_done) * 1000 if include_tts and t_tts_done >= t_chat_done else 0.0,
+        (total_done - t0) * 1000,
+    )
 
     return ChatResponse(
         conversation_id=conv.id,

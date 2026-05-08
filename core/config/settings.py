@@ -29,7 +29,12 @@ class Settings(BaseSettings):
     )
     # Tên model theo SDK mới `google-genai` (client tự thêm tiền tố `models/`)
     # Có thể override bằng biến môi trường GEMINI_MODEL nếu muốn.
-    gemini_model: str = "gemini-2.5-flash-lite"
+    gemini_model: str = "gemini-2.5-flash"
+    # STT: tach model rieng vi Gemma chat model khong toi uu cho audio.
+    stt_model: str | None = "gemini-2.5-flash"
+    stt_timeout_seconds: int = 20
+    stt_retry_attempts: int = 2
+    voice_max_audio_bytes: int = 5 * 1024 * 1024
     # Routing LLM:
     # - api_only: luôn dùng Gemini (mặc định, phù hợp Render free tier)
     # - local_only: chỉ dùng local model
@@ -45,6 +50,7 @@ class Settings(BaseSettings):
     # TTS (edge-tts — giong tieng Viet, khong can API key)
     tts_voice: str = "vi-VN-HoaiMyNeural"
     tts_max_chars: int = 5000
+    tts_timeout_seconds: int = 20
 
     # Vector RAG (thiet ke nhe cho Raspberry Pi)
     rag_enabled: bool = True
