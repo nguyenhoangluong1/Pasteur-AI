@@ -34,7 +34,8 @@ class Settings(BaseSettings):
     # Groq — chat (OpenAI-compatible) + Whisper STT; tránh chặn khu vực của Google API
     groq_api_key: str | None = Field(default=None, validation_alias="GROQ_API_KEY")
     groq_model: str = "llama-3.3-70b-versatile"
-    groq_stt_model: str = "whisper-large-v3-turbo"
+    # whisper-large-v3: chính xác hơn (tiếng Việt + nền nhiễu); turbo nhanh hơn nhưng dễ lệch hơn.
+    groq_stt_model: str = "whisper-large-v3"
     groq_timeout_seconds: int = 60
     # gemini | groq (mặc định groq — ổn trên Render/hosting nhiều khu vực)
     chat_llm_provider: str = "groq"
@@ -44,8 +45,12 @@ class Settings(BaseSettings):
     # STT Gemini: tach model rieng vi Gemma chat model khong toi uu cho audio.
     stt_model: str | None = "gemini-2.5-flash"
     stt_model_fallback_enabled: bool = True
-    stt_timeout_seconds: int = 20
+    stt_timeout_seconds: int = 35
     stt_retry_attempts: int = 2
+    # Gắn thêm vào prompt Whisper (Groq); để trống = chỉ dùng prompt mặc định trong code.
+    stt_whisper_extra_prompt: str = ""
+    # Chuẩn hóa Unicode (NFC) + gọn khoảng trắng sau STT.
+    stt_normalize_output: bool = True
     voice_max_audio_bytes: int = 5 * 1024 * 1024
     chat_model_round_robin: bool = False
     # Routing LLM:
