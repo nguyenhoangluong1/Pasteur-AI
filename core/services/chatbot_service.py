@@ -91,7 +91,10 @@ def chat_with_gemini(
         system_instruction=SYSTEM_INSTRUCTION,
     )
 
-    assistant_text = response.text or ""
+    try:
+        assistant_text = (response.text or "").strip()
+    except Exception:
+        assistant_text = ""
 
     user_msg = Message(conversation_id=conv.id, role="user", content=user_message)
     assistant_msg = Message(conversation_id=conv.id, role="assistant", content=assistant_text)

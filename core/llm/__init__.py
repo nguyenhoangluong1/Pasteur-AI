@@ -14,6 +14,7 @@ from google import genai
 from google.genai.errors import ClientError, ServerError
 
 from core.config import get_settings
+from core.llm.gemini_http import gemini_region_blocked
 
 _model = None
 
@@ -60,6 +61,9 @@ class _GeminiWrapper:
                 **kwargs,
             )
         except ClientError as exc:
+            # Geo / billing policy: switching model will not help.
+            if gemini_region_blocked(exc):
+                raise
             # Handle unsupported / unavailable model slug for current API key.
             text = str(exc).lower()
             should_fallback = (

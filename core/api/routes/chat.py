@@ -7,12 +7,14 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from google.genai.errors import ClientError, ServerError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.api.deps import get_db
 from core.config import get_settings
 from core.db.models import Patient
+from core.llm.gemini_http import http_detail_message, suggest_status_for_gemini_client_error
 from core.services.chatbot_service import chat_with_gemini
 from core.speech import transcribe_audio
 from core.speech.tts import synthesize_speech_chunks_async, synthesize_speech_sync
@@ -140,6 +142,16 @@ def chat(body: ChatRequest, db: Session = Depends(get_db)):
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ClientError as exc:
+        status = suggest_status_for_gemini_client_error(exc)
+        raise HTTPException(status_code=status, detail=http_detail_message(exc)) from exc
+    except ServerError as exc:
+        raise HTTPException(status_code=502, detail=http_detail_message(exc)) from exc
+    except RuntimeError as exc:
+        msg = str(exc)
+        if "GEMINI_API_KEY" in msg or "not configured" in msg.lower():
+            raise HTTPException(status_code=503, detail=msg) from exc
+        raise
 
     return ChatResponse(
         conversation_id=conv.id,

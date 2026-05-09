@@ -117,16 +117,33 @@ function applyAssistantTextPreviewUi() {
   assistantTextToggle.checked = !!state.showAssistantTextPreview;
 }
 
+function parseFastApiErrorBody(rawText) {
+  const fallback = (rawText || "").trim();
+  if (!fallback) return "";
+  try {
+    const j = JSON.parse(fallback);
+    if (typeof j.detail === "string") return j.detail;
+    if (Array.isArray(j.detail))
+      return j.detail.map((d) => d.msg || JSON.stringify(d)).join("; ");
+  } catch (_) {}
+  return fallback;
+}
+
 async function api(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
+  const text = await res.text();
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || res.statusText);
+    throw new Error(parseFastApiErrorBody(text) || res.statusText);
   }
-  return res.json();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    return {};
+  }
 }
 
 function setSending(v) {
@@ -838,10 +855,11 @@ async function backendSendMessage(rawText) {
     if (typingEl?.parentNode) typingEl.remove();
     typingEl = null;
     if (messagesEl && state.patientId === currentPatientId) {
-      appendMessage(
-        "assistant",
-        "Sorry, something went wrong calling Gemini. Please try again later."
-      );
+      const detail =
+        err && typeof err.message === "string" && err.message.trim()
+          ? err.message.trim()
+          : "Không gọi được dịch vụ chat. Kiểm tra backend và GEMINI_API_KEY.";
+      appendMessage("assistant", detail);
     }
   } finally {
     if (typingEl?.parentNode) typingEl.remove();
