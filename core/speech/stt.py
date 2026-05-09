@@ -18,8 +18,6 @@ from google.genai import types
 from google.genai.errors import ClientError
 
 from core.config import get_settings
-from core.speech.audio_energy_gate import raise_if_wav_too_quiet_or_flat
-from core.speech.audio_preprocess import preprocess_audio_for_stt
 from core.speech.stt_noise import transcript_acceptable
 
 # Whisper: chỉ hướng dẫn style — KHÔNG nhét tên thuốc/BN vào prompt mặc định (gây bias khi nhiễu).
@@ -27,6 +25,7 @@ _WHISPER_STYLE_VI = (
     "Bản phiên âm tiếng Việt, có dấu đầy đủ. "
     "Một lớp thoại duy nhất, không chú thích. "
     "Bỏ qua tiếng hít thở, gõ phím, gió mic nếu không phải lời nói. "
+    "Không chép lời thoát video, lời mời đăng ký kênh, hay phụ đề nếu không phải giọng người đang nói trực tiếp. "
     "Nếu không nghe rõ lời người nói, trả về đoạn trống hoặc rất ngắn thay vì đoán."
 )
 
@@ -252,27 +251,6 @@ def transcribe_audio(
 
     settings = get_settings()
     mime = _normalize_mime(mime_type or "audio/webm")
-    preprocess_mode = (getattr(settings, "stt_audio_preprocess", "none") or "none").strip().lower()
-    ffmpeg_bin = getattr(settings, "stt_ffmpeg_bin", "ffmpeg") or "ffmpeg"
-    audio_bytes, mime = preprocess_audio_for_stt(
-        audio_bytes,
-        mime,
-        mode=preprocess_mode,
-        ffmpeg_bin=str(ffmpeg_bin),
-    )
-    if not audio_bytes:
-        raise ValueError("Audio rong sau tien xu ly")
-
-    if "wav" in mime.lower() and bool(getattr(settings, "stt_wav_energy_gate", True)):
-        raise_if_wav_too_quiet_or_flat(
-            audio_bytes,
-            enabled=True,
-            min_peak=float(getattr(settings, "stt_wav_min_peak", 0.024)),
-            min_window_rms=float(getattr(settings, "stt_wav_min_window_rms", 0.0065)),
-            min_modulation=float(getattr(settings, "stt_wav_min_modulation", 1.22)),
-            loud_peak_bypass=float(getattr(settings, "stt_wav_loud_peak_bypass", 0.072)),
-        )
-
     provider = (getattr(settings, "stt_provider", None) or "groq").strip().lower()
 
     if provider == "groq":

@@ -1109,91 +1109,6 @@ function normalizeTranscriptText(value) {
   return (value || "").replace(/\s+/g, " ").trim();
 }
 
-/** Khớp cổng WAV backend: peak + RMS cửa sổ ~100 ms + độ biến động (chặn nền đều). */
-const VOICE_GATE_MIN_PEAK = 0.024;
-const VOICE_GATE_MIN_WINDOW_RMS = 0.0065;
-const VOICE_GATE_MIN_MODULATION = 1.22;
-const VOICE_LOUD_PEAK_BYPASS = 0.072;
-
-/**
- * Decode blob → mono trung bình kênh; peak, RMS toàn đoạn, max/mean RMS cửa sổ, modulation.
- * decode lỗi → pass (gửi server).
- * @returns {{ ok: boolean, rms: number, peak: number, durationSec: number, decodeFailed?: boolean, modulation?: number, maxWindowRms?: number }}
- */
-async function measureVoiceBlobEnergy(blob) {
-  if (!blob || !blob.size) {
-    return { ok: false, rms: 0, peak: 0, durationSec: 0 };
-  }
-  const ACtx = window.AudioContext || window.webkitAudioContext;
-  if (!ACtx) {
-    return { ok: true, rms: 0, peak: 0, durationSec: 0, decodeFailed: true };
-  }
-  const ctx = new ACtx();
-  try {
-    const ab = await blob.arrayBuffer();
-    const audioBuffer = await ctx.decodeAudioData(ab.slice(0));
-    const ch = audioBuffer.numberOfChannels;
-    const len = audioBuffer.length;
-    if (!len) {
-      return { ok: false, rms: 0, peak: 0, durationSec: 0 };
-    }
-    const mono = new Float32Array(len);
-    for (let i = 0; i < len; i++) {
-      let s = 0;
-      for (let c = 0; c < ch; c++) {
-        s += audioBuffer.getChannelData(c)[i];
-      }
-      mono[i] = s / ch;
-    }
-    let sumSq = 0;
-    let peak = 0;
-    for (let i = 0; i < len; i++) {
-      const v = mono[i];
-      sumSq += v * v;
-      const a = Math.abs(v);
-      if (a > peak) peak = a;
-    }
-    const overallRms = Math.sqrt(sumSq / len);
-    const sr = audioBuffer.sampleRate;
-    const win = Math.max(Math.floor(sr * 0.1), 400);
-    const hop = Math.max(Math.floor(win / 2), 200);
-    const windowRms = [];
-    for (let start = 0; start + win <= len; start += hop) {
-      let ws = 0;
-      for (let i = start; i < start + win; i++) {
-        const v = mono[i];
-        ws += v * v;
-      }
-      windowRms.push(Math.sqrt(ws / win));
-    }
-    if (windowRms.length === 0) {
-      windowRms.push(overallRms);
-    }
-    const maxWin = Math.max(...windowRms);
-    const meanWin = windowRms.reduce((a, b) => a + b, 0) / windowRms.length;
-    const modulation = maxWin / (meanWin + 1e-9);
-    const passes =
-      peak >= VOICE_GATE_MIN_PEAK &&
-      maxWin >= VOICE_GATE_MIN_WINDOW_RMS &&
-      (modulation >= VOICE_GATE_MIN_MODULATION || peak >= VOICE_LOUD_PEAK_BYPASS);
-    return {
-      ok: passes,
-      rms: overallRms,
-      peak,
-      durationSec: audioBuffer.duration,
-      maxWindowRms: maxWin,
-      modulation,
-    };
-  } catch (e) {
-    console.warn("[VOICE] decodeAudioData failed, sending anyway", e);
-    return { ok: true, rms: 0, peak: 0, durationSec: 0, decodeFailed: true };
-  } finally {
-    try {
-      await ctx.close();
-    } catch (_) {}
-  }
-}
-
 function canUseBrowserSpeechRecognition() {
   return !!getSpeechRecognitionCtor();
 }
@@ -1368,16 +1283,6 @@ async function backendSendAudio(blob) {
   if (state.voiceSending) return;
   if (!state.patientId) {
     if (statusText) statusText.textContent = "Chưa chọn bệnh nhân";
-    return;
-  }
-  const gate = await measureVoiceBlobEnergy(blob);
-  if (!gate.ok && !gate.decodeFailed) {
-    setMicUiState({ disabled: false });
-    setSending(false);
-    if (statusText) {
-      statusText.textContent =
-        "Âm thanh quá nhỏ hoặc chỉ có nền — hãy nói gần mic hoặc to hơn một chút.";
-    }
     return;
   }
   const requestId = ++state.activeAudioRequestId;

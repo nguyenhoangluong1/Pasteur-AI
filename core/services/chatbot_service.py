@@ -7,16 +7,16 @@ from core.db.models import Conversation, Message, Patient
 from core.llm import get_gemini_model
 from core.services.vector_rag_service import get_relevant_context
 from core.speech.stt_noise import (
-    looks_like_media_promo_hallucination,
+    looks_like_stt_spurious_content,
     query_passes_reference_gate,
     query_should_use_rag,
 )
 
-# Không gọi LLM — tránh “diễn” theo hallucination STT kiểu subscribe/YouTube khi nhiễu nền.
+# Không gọi LLM — tránh trả lời theo transcript “ảo” sau STT trên nền nhiễu (outro video, subscribe,...).
 _PROMO_OR_OUTRO_NOISE_REPLY = (
-    "Đoạn văn giống lời thoại quảng cáo hoặc kênh video (hay gặp khi mic chỉ thu nền). "
-    "Hãy nói lại gần mic hoặc giảm tiếng xung quanh. "
-    "Nếu bạn cần hỏi về sức khỏe, xin nói rõ triệu chứng hoặc thắc mắc."
+    "Nội dung giống transcript máy khi chỉ có tiếng nền (mic/webcam), không phải câu bạn muốn nói. "
+    "Hãy nói lại gần mic, giảm quạt/TV gần đó. "
+    "Nếu cần hỏi sức khỏe, xin nói rõ triệu chứng."
 )
 
 SYSTEM_INSTRUCTION = (
@@ -94,7 +94,7 @@ def chat_with_gemini(
         db.add(conv)
         db.flush()
 
-    if looks_like_media_promo_hallucination(user_message):
+    if looks_like_stt_spurious_content(user_message):
         assistant_text = _PROMO_OR_OUTRO_NOISE_REPLY
         user_msg = Message(conversation_id=conv.id, role="user", content=user_message)
         assistant_msg = Message(conversation_id=conv.id, role="assistant", content=assistant_text)

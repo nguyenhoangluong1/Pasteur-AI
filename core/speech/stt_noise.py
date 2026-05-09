@@ -20,6 +20,70 @@ def normalize_text_for_check(text: str) -> str:
     return re.sub(r"\s+", " ", s)
 
 
+def looks_like_video_outro_template(text: str) -> bool:
+    """Mẫu outro / thoại video tiếng Việt + vài cụm tiếng Anh hay bịa khi chỉ có nền."""
+    s = normalize_text_for_check(text)
+    if len(s) < 14:
+        return False
+    snippets = (
+        "cảm ơn các bạn đã xem",
+        "cam on cac ban da xem",
+        "cảm ơn bạn đã xem video",
+        "cam on ban da xem video",
+        "cảm ơn mọi người đã xem",
+        "cam on moi nguoi da xem",
+        "hẹn gặp lại các bạn",
+        "hen gap lai cac ban",
+        "hẹn gặp lại trong video",
+        "hen gap lai trong video",
+        "hẹn gặp lại ở video",
+        "đăng ký kênh để ủng hộ",
+        "dang ky kenh de ung ho",
+        "đăng ký kênh nhé",
+        "dang ky kenh nhe",
+        "nhớ like và share",
+        "nho like va share",
+        "nhớ like và đăng ký",
+        "nho like va dang ky",
+        "follow kênh",
+        "thank you for watching",
+        "please subscribe",
+        "see you in the next video",
+        "xin chào quý vị và các bạn",
+        "xin chao quy vi va cac ban",
+        "video của mình đến đây",
+        "video cua minh den day",
+        "video hôm nay đến đây",
+        "video hom nay den day",
+        "theo dõi kênh để không bỏ lỡ",
+        "theo doi kenh de khong bo lo",
+    )
+    return any(p in s for p in snippets)
+
+
+def looks_like_lexically_impoverished(text: str) -> bool:
+    """Ít từ khác nhau nhưng đoạn dài — hay gặp khi STT bám vào vài âm nền lặp lại."""
+    words = [w for w in _VI_SPLIT.split(normalize_text_for_check(text)) if w]
+    if len(words) < 8:
+        return False
+    if len(set(words)) <= 2:
+        return True
+    if len(words) >= 10:
+        top_n = Counter(words).most_common(1)[0][1]
+        if top_n / len(words) >= 0.52:
+            return True
+    return False
+
+
+def looks_like_stt_spurious_content(text: str) -> bool:
+    """Tổng hợp transcript “rác” điển hình sau STT trên nền nhiễu — dùng cho gate + chat."""
+    return (
+        looks_like_media_promo_hallucination(text)
+        or looks_like_video_outro_template(text)
+        or looks_like_lexically_impoverished(text)
+    )
+
+
 def looks_like_media_promo_hallucination(text: str) -> bool:
     """
     Whisper hay trả về câu outro/subscribe kiểu YouTube khi chỉ có nền nhiễu (silence + fan).
@@ -65,18 +129,29 @@ def looks_like_repetition_hallucination(text: str) -> bool:
         return False
 
     uniq_ratio = len(set(words)) / len(words)
-    if len(words) >= 12 and uniq_ratio < 0.28:
+    if len(words) >= 8 and uniq_ratio < 0.30:
         return True
 
-    if len(words) >= 10:
+    if len(words) >= 8:
         bigrams = list(zip(words, words[1:]))
         if bigrams:
             top = Counter(bigrams).most_common(1)[0][1]
-            if top / len(bigrams) > 0.42:
+            thr = 0.40 if len(words) >= 10 else 0.48
+            if top / len(bigrams) > thr:
                 return True
 
     if re.search(r"(.)\1{7,}", s):
         return True
+
+    # Lặp cụm ngắn 2–3 từ (vd. "ạ không không không ...")
+    if len(words) >= 9:
+        for win_len in range(2, 4):
+            grams = tuple(tuple(words[i : i + win_len]) for i in range(len(words) - win_len + 1))
+            if not grams:
+                continue
+            top_g = Counter(grams).most_common(1)[0][1]
+            if top_g >= 4 and top_g / len(grams) > 0.35:
+                return True
 
     return False
 
@@ -99,7 +174,7 @@ def transcript_acceptable(text: str, *, level: str) -> bool:
         return True
     if looks_like_repetition_hallucination(text):
         return False
-    if looks_like_media_promo_hallucination(text):
+    if looks_like_stt_spurious_content(text):
         return False
 
     words = [w for w in _VI_SPLIT.split(s) if w]
@@ -160,7 +235,7 @@ def query_passes_reference_gate(
         return False
     if looks_like_repetition_hallucination(query):
         return False
-    if looks_like_media_promo_hallucination(query):
+    if looks_like_stt_spurious_content(query):
         return False
     if not gate_short_queries:
         return True
