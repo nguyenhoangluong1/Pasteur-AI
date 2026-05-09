@@ -1109,6 +1109,58 @@ function normalizeTranscriptText(value) {
   return (value || "").replace(/\s+/g, " ").trim();
 }
 
+/** Ngưỡng năng lượng (float -1..1 sau decode): quá thấp ≈ chỉ nền → không gửi STT (giảm hallucination). */
+const VOICE_GATE_MIN_RMS = 0.003;
+const VOICE_GATE_MIN_PEAK = 0.02;
+
+/**
+ * Đo RMS / peak trên kênh đầu — decode lỗi thì coi như pass (gửi server).
+ * @returns {{ ok: boolean, rms: number, peak: number, durationSec: number, decodeFailed?: boolean }}
+ */
+async function measureVoiceBlobEnergy(blob) {
+  if (!blob || !blob.size) {
+    return { ok: false, rms: 0, peak: 0, durationSec: 0 };
+  }
+  const ACtx = window.AudioContext || window.webkitAudioContext;
+  if (!ACtx) {
+    return { ok: true, rms: 0, peak: 0, durationSec: 0, decodeFailed: true };
+  }
+  const ctx = new ACtx();
+  try {
+    const ab = await blob.arrayBuffer();
+    const audioBuffer = await ctx.decodeAudioData(ab.slice(0));
+    const data = audioBuffer.getChannelData(0);
+    const n = data.length;
+    if (!n) {
+      return { ok: false, rms: 0, peak: 0, durationSec: 0 };
+    }
+    let sumSq = 0;
+    let peak = 0;
+    for (let i = 0; i < n; i++) {
+      const v = data[i];
+      sumSq += v * v;
+      const a = Math.abs(v);
+      if (a > peak) peak = a;
+    }
+    const rms = Math.sqrt(sumSq / n);
+    const durationSec = audioBuffer.duration;
+    const weak = rms < VOICE_GATE_MIN_RMS && peak < VOICE_GATE_MIN_PEAK;
+    return {
+      ok: !weak,
+      rms,
+      peak,
+      durationSec,
+    };
+  } catch (e) {
+    console.warn("[VOICE] decodeAudioData failed, sending anyway", e);
+    return { ok: true, rms: 0, peak: 0, durationSec: 0, decodeFailed: true };
+  } finally {
+    try {
+      await ctx.close();
+    } catch (_) {}
+  }
+}
+
 function canUseBrowserSpeechRecognition() {
   return !!getSpeechRecognitionCtor();
 }
@@ -1283,6 +1335,16 @@ async function backendSendAudio(blob) {
   if (state.voiceSending) return;
   if (!state.patientId) {
     if (statusText) statusText.textContent = "Chưa chọn bệnh nhân";
+    return;
+  }
+  const gate = await measureVoiceBlobEnergy(blob);
+  if (!gate.ok && !gate.decodeFailed) {
+    setMicUiState({ disabled: false });
+    setSending(false);
+    if (statusText) {
+      statusText.textContent =
+        "Âm thanh quá nhỏ hoặc chỉ có nền — hãy nói gần mic hoặc to hơn một chút.";
+    }
     return;
   }
   const requestId = ++state.activeAudioRequestId;

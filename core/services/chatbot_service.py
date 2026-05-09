@@ -6,8 +6,18 @@ from core.config import get_settings
 from core.db.models import Conversation, Message, Patient
 from core.llm import get_gemini_model
 from core.services.vector_rag_service import get_relevant_context
-from core.speech.stt_noise import query_should_use_rag
+from core.speech.stt_noise import (
+    looks_like_media_promo_hallucination,
+    query_passes_reference_gate,
+    query_should_use_rag,
+)
 
+# Không gọi LLM — tránh “diễn” theo hallucination STT kiểu subscribe/YouTube khi nhiễu nền.
+_PROMO_OR_OUTRO_NOISE_REPLY = (
+    "Đoạn văn giống lời thoại quảng cáo hoặc kênh video (hay gặp khi mic chỉ thu nền). "
+    "Hãy nói lại gần mic hoặc giảm tiếng xung quanh. "
+    "Nếu bạn cần hỏi về sức khỏe, xin nói rõ triệu chứng hoặc thắc mắc."
+)
 
 SYSTEM_INSTRUCTION = (
     "Bạn là trợ lý sức khỏe tiếng Việt trong ứng dụng hồ sơ bệnh nhân. "
@@ -84,23 +94,44 @@ def chat_with_gemini(
         db.add(conv)
         db.flush()
 
+    if looks_like_media_promo_hallucination(user_message):
+        assistant_text = _PROMO_OR_OUTRO_NOISE_REPLY
+        user_msg = Message(conversation_id=conv.id, role="user", content=user_message)
+        assistant_msg = Message(conversation_id=conv.id, role="assistant", content=assistant_text)
+        db.add_all([user_msg, assistant_msg])
+        db.commit()
+        db.refresh(conv)
+        return assistant_text, conv
+
     history_contents = _conversation_to_messages(conv)
 
-    # Hồ sơ tối thiểu + RAG chỉ khi câu đủ dài/rõ — tránh embed transcript rác và kéo chunk BN vào prompt.
-    patient_context = _build_patient_context(patient)
+    # Không sửa nội dung user_message — chỉ quyết định có đính kèm khối tham chiếu hay không.
+    # Cùng cổng cho hồ sơ tối thiểu + RAG: câu quá ngắn/giống rác STT → chỉ gửi đúng câu người dùng (xử lý qua).
     settings = get_settings()
-    rag_context = ""
-    if query_should_use_rag(
+    gate_sq = bool(getattr(settings, "rag_gate_short_queries", True))
+    min_c = int(getattr(settings, "rag_min_query_chars", 8))
+    min_w = int(getattr(settings, "rag_min_query_words", 2))
+    attach_reference = query_passes_reference_gate(
         user_message,
-        rag_enabled=bool(settings.rag_enabled),
-        gate_short_queries=bool(getattr(settings, "rag_gate_short_queries", True)),
-        min_chars=int(getattr(settings, "rag_min_query_chars", 8)),
-        min_words=int(getattr(settings, "rag_min_query_words", 2)),
-    ):
-        rag_context = get_relevant_context(db, patient_id=patient_id, query=user_message)
-    ref_block = _wrap_retrieval_reference(
-        f"{patient_context}\n\n{rag_context}" if rag_context else patient_context
+        gate_short_queries=gate_sq,
+        min_chars=min_c,
+        min_words=min_w,
     )
+    ref_block = ""
+    if attach_reference:
+        patient_context = _build_patient_context(patient)
+        rag_context = ""
+        if query_should_use_rag(
+            user_message,
+            rag_enabled=bool(settings.rag_enabled),
+            gate_short_queries=gate_sq,
+            min_chars=min_c,
+            min_words=min_w,
+        ):
+            rag_context = get_relevant_context(db, patient_id=patient_id, query=user_message)
+        ref_block = _wrap_retrieval_reference(
+            f"{patient_context}\n\n{rag_context}" if rag_context else patient_context
+        )
     assembled = (
         ref_block.strip() + "\n\n────────────────\n[CÂU HIỆN TẠI — trả lời đúng dòng sau]\n"
         if ref_block.strip()

@@ -20,6 +20,38 @@ def normalize_text_for_check(text: str) -> str:
     return re.sub(r"\s+", " ", s)
 
 
+def looks_like_media_promo_hallucination(text: str) -> bool:
+    """
+    Whisper hay trả về câu outro/subscribe kiểu YouTube khi chỉ có nền nhiễu (silence + fan).
+    Không chặn hội thoại thường — chỉ khớp cụm đặc trưng template quảng bá/kênh.
+    """
+    s = normalize_text_for_check(text)
+    if len(s) < 10:
+        return False
+
+    # Kênh viral hay xuất hiện trong hallucination tiếng Việt
+    if all(p in s for p in ("ghiền", "mì", "gõ")):
+        return True
+
+    if "để không bỏ lỡ" in s and "video" in s:
+        return True
+
+    if re.search(r"bật\s+chuông(?:\s+thông\s+báo)?", s):
+        return True
+
+    if any(p in s for p in ("nhấn like", "like và subscribe", "ấn nút đăng ký", "ấn đăng ký")):
+        return True
+
+    if "subscribe" in s or "subcribe" in s:
+        # Combo điển hình outro / đăng ký kênh (không khớp "subscribe" đứng một mình)
+        if any(x in s for x in ("để không bỏ lỡ", "chuông", "video")):
+            return True
+        if "kênh" in s and len(s) < 120:
+            return True
+
+    return False
+
+
 def looks_like_repetition_hallucination(text: str) -> bool:
     """Lặp cụm/từ bất thường — hay gặp khi chỉ có nền hoặc silence."""
     s = normalize_text_for_check(text)
@@ -67,6 +99,8 @@ def transcript_acceptable(text: str, *, level: str) -> bool:
         return True
     if looks_like_repetition_hallucination(text):
         return False
+    if looks_like_media_promo_hallucination(text):
+        return False
 
     words = [w for w in _VI_SPLIT.split(s) if w]
 
@@ -110,6 +144,32 @@ def transcript_acceptable(text: str, *, level: str) -> bool:
     return True
 
 
+def query_passes_reference_gate(
+    query: str,
+    *,
+    gate_short_queries: bool,
+    min_chars: int,
+    min_words: int,
+) -> bool:
+    """
+    Câu đủ “có nghĩa” để gắn khối tham chiếu (hồ sơ / RAG) — không sửa chữa input,
+    chỉ quyết định có đính kèm tài liệu tham chiếu hay không (tránh transcript rác sau mic).
+    """
+    q = normalize_text_for_check(query)
+    if not q:
+        return False
+    if looks_like_repetition_hallucination(query):
+        return False
+    if looks_like_media_promo_hallucination(query):
+        return False
+    if not gate_short_queries:
+        return True
+    words = [w for w in _VI_SPLIT.split(q) if w]
+    if len(q) < max(1, min_chars) or len(words) < max(1, min_words):
+        return False
+    return True
+
+
 def query_should_use_rag(
     query: str,
     *,
@@ -118,17 +178,12 @@ def query_should_use_rag(
     min_chars: int,
     min_words: int,
 ) -> bool:
-    """Không gọi embedding/RAG khi câu quá ngắn hoặc giống transcript rác."""
+    """Chỉ gọi embedding/RAG khi bật rag và câu vượt cổng tham chiếu."""
     if not rag_enabled:
         return False
-    q = normalize_text_for_check(query)
-    if not q:
-        return False
-    if looks_like_repetition_hallucination(query):
-        return False
-    if not gate_short_queries:
-        return True
-    words = [w for w in _VI_SPLIT.split(q) if w]
-    if len(q) < max(1, min_chars) or len(words) < max(1, min_words):
-        return False
-    return True
+    return query_passes_reference_gate(
+        query,
+        gate_short_queries=gate_short_queries,
+        min_chars=min_chars,
+        min_words=min_words,
+    )

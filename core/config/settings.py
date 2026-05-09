@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     stt_noise_guard_level: str = "light"
     # True = nhét tên thuốc/BN vào prompt Whisper (dễ bias khi chỉ có nền nhiễu). Mặc định tắt.
     stt_whisper_include_hints: bool = False
+    # none | ffmpeg_highpass — high-pass + WAV mono 16 kHz trước Whisper (cần ffmpeg).
+    stt_audio_preprocess: str = "none"
+    stt_ffmpeg_bin: str = "ffmpeg"
     voice_max_audio_bytes: int = 5 * 1024 * 1024
     chat_model_round_robin: bool = False
     # Routing LLM:
@@ -76,7 +79,7 @@ class Settings(BaseSettings):
 
     # Vector RAG (thiet ke nhe cho Raspberry Pi)
     rag_enabled: bool = True
-    # Chỉ gắn RAG khi câu đủ dài — tránh embed transcript rác + kéo chunk hồ sơ vào context
+    # Câu quá ngắn: không đính kèm khối tham chiếu (tóm tắt BN + RAG); chỉ gửi đúng tin nhắn người dùng
     rag_gate_short_queries: bool = True
     # Hai điều kiện cùng lúc (AND): đủ ký tự và đủ từ — giữ thấp để vẫn RAG cho triệu chứng ngắn (vd. "đau đầu").
     rag_min_query_chars: int = 8

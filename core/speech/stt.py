@@ -18,6 +18,7 @@ from google.genai import types
 from google.genai.errors import ClientError
 
 from core.config import get_settings
+from core.speech.audio_preprocess import preprocess_audio_for_stt
 from core.speech.stt_noise import transcript_acceptable
 
 # Whisper: chỉ hướng dẫn style — KHÔNG nhét tên thuốc/BN vào prompt mặc định (gây bias khi nhiễu).
@@ -250,6 +251,16 @@ def transcribe_audio(
 
     settings = get_settings()
     mime = _normalize_mime(mime_type or "audio/webm")
+    preprocess_mode = (getattr(settings, "stt_audio_preprocess", "none") or "none").strip().lower()
+    ffmpeg_bin = getattr(settings, "stt_ffmpeg_bin", "ffmpeg") or "ffmpeg"
+    audio_bytes, mime = preprocess_audio_for_stt(
+        audio_bytes,
+        mime,
+        mode=preprocess_mode,
+        ffmpeg_bin=str(ffmpeg_bin),
+    )
+    if not audio_bytes:
+        raise ValueError("Audio rong sau tien xu ly")
     provider = (getattr(settings, "stt_provider", None) or "groq").strip().lower()
 
     if provider == "groq":
