@@ -23,6 +23,19 @@ from core.speech.tts import synthesize_speech_chunks_async, synthesize_speech_sy
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+try:
+    from groq import APIError as _GroqAPIError
+except ImportError:
+    _GroqAPIError = None  # type: ignore[misc, assignment]
+
+
+def _http_from_groq_error(exc: Exception) -> HTTPException | None:
+    if _GroqAPIError is None or not isinstance(exc, _GroqAPIError):
+        return None
+    status = getattr(exc, "status_code", None)
+    code = 429 if status == 429 else 502
+    return HTTPException(status_code=code, detail=f"Groq API: {exc}")
+
 
 class ChatRequest(BaseModel):
     patient_id: str
@@ -149,8 +162,16 @@ def chat(body: ChatRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=502, detail=http_detail_message(exc)) from exc
     except RuntimeError as exc:
         msg = str(exc)
-        if "GEMINI_API_KEY" in msg or "not configured" in msg.lower():
+        low = msg.lower()
+        if "GEMINI_API_KEY" in msg or ("gemini" in low and "not configured" in low):
             raise HTTPException(status_code=503, detail=msg) from exc
+        if "GROQ_API_KEY" in msg or ("groq" in low and "not configured" in low):
+            raise HTTPException(status_code=503, detail=msg) from exc
+        raise
+    except Exception as exc:
+        groq_http = _http_from_groq_error(exc)
+        if groq_http is not None:
+            raise groq_http from exc
         raise
 
     return ChatResponse(

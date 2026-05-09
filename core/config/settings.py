@@ -30,7 +30,18 @@ class Settings(BaseSettings):
     # Tên model theo SDK mới `google-genai` (client tự thêm tiền tố `models/`)
     # Có thể override bằng biến môi trường GEMINI_MODEL nếu muốn.
     gemini_model: str = "gemini-2.5-flash"
-    # STT: tach model rieng vi Gemma chat model khong toi uu cho audio.
+
+    # Groq — chat (OpenAI-compatible) + Whisper STT; tránh chặn khu vực của Google API
+    groq_api_key: str | None = Field(default=None, validation_alias="GROQ_API_KEY")
+    groq_model: str = "llama-3.3-70b-versatile"
+    groq_stt_model: str = "whisper-large-v3-turbo"
+    groq_timeout_seconds: int = 60
+    # gemini | groq (groq cần GROQ_API_KEY)
+    chat_llm_provider: str = "gemini"
+    # gemini | groq (groq cần GROQ_API_KEY)
+    stt_provider: str = "gemini"
+
+    # STT Gemini: tach model rieng vi Gemma chat model khong toi uu cho audio.
     stt_model: str | None = "gemini-2.5-flash"
     stt_model_fallback_enabled: bool = True
     stt_timeout_seconds: int = 20

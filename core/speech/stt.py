@@ -1,5 +1,7 @@
 """
-Speech-to-text: dùng Gemini multimodal (audio + prompt) với cùng GEMINI_API_KEY.
+Speech-to-text:
+- gemini (mac dinh): Gemini multimodal + GEMINI_API_KEY
+- groq: Whisper qua Groq OpenAI-compatible API + GROQ_API_KEY (it huong khi Google chan khu vuc)
 """
 
 from __future__ import annotations
@@ -7,6 +9,7 @@ from __future__ import annotations
 import concurrent.futures
 import time
 from functools import lru_cache
+from io import BytesIO
 
 from google import genai
 from google.genai import types
@@ -22,30 +25,67 @@ def _normalize_mime(mime: str) -> str:
     return m
 
 
+def _audio_filename_for_mime(mime: str) -> str:
+    if "wav" in mime:
+        return "recording.wav"
+    if "mpeg" in mime or "mp3" in mime:
+        return "recording.mp3"
+    if "mp4" in mime or "m4a" in mime:
+        return "recording.m4a"
+    return "recording.webm"
+
+
 @lru_cache(maxsize=1)
 def _get_stt_client(api_key: str):
-    # Reuse client across requests to cut per-call setup overhead.
     return genai.Client(api_key=api_key)
 
 
-def transcribe_audio(
+def _transcribe_groq_whisper(
     audio_bytes: bytes,
-    mime_type: str | None = None,
-    *,
-    domain_hints: list[str] | None = None,
+    mime: str,
+    domain_hints: list[str] | None,
 ) -> str:
-    """
-    Chuyen audio thanh van ban tieng Viet.
-    mime_type: audio/webm, audio/wav, audio/mpeg, audio/mp4, ...
-    """
-    if not audio_bytes:
-        raise ValueError("Audio rong")
+    from groq import Groq
 
+    settings = get_settings()
+    key = (settings.groq_api_key or "").strip()
+    if not key:
+        raise RuntimeError("GROQ_API_KEY chua cau hinh (can cho STT_PROVIDER=groq)")
+
+    timeout = max(1, int(getattr(settings, "stt_timeout_seconds", 20)))
+    client = Groq(api_key=key, timeout=timeout)
+    model = (settings.groq_stt_model or "whisper-large-v3-turbo").strip()
+
+    hints = [h.strip() for h in (domain_hints or []) if h and h.strip()]
+    prompt = None
+    if hints:
+        prompt = "Tu khoa uu tien (ghi dung neu nghe thay): " + "; ".join(hints[:30])
+
+    bio = BytesIO(audio_bytes)
+    bio.name = _audio_filename_for_mime(mime)
+
+    tr = client.audio.transcriptions.create(
+        file=bio,
+        model=model,
+        language="vi",
+        prompt=prompt,
+        temperature=0.0,
+    )
+    text = (getattr(tr, "text", None) or "").strip()
+    if not text:
+        raise RuntimeError("Groq STT khong tra ve van ban")
+    return text
+
+
+def _transcribe_gemini(
+    audio_bytes: bytes,
+    mime: str,
+    domain_hints: list[str] | None,
+) -> str:
     settings = get_settings()
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY chua cau hinh (can cho STT)")
 
-    mime = _normalize_mime(mime_type or "audio/webm")
     client = _get_stt_client(settings.gemini_api_key)
     model = settings.resolved_stt_model
     fallback_model = settings.resolved_stt_alternate_model
@@ -60,7 +100,6 @@ def transcribe_audio(
     hints = [h.strip() for h in (domain_hints or []) if h and h.strip()]
     hint_block = ""
     if hints:
-        # Boost recognition for medical names/terms from patient profile.
         hint_block = (
             "\n\nTu khoa uu tien (neu nghe thay thi giu nguyen): "
             + "; ".join(hints[:10])
@@ -87,10 +126,10 @@ def transcribe_audio(
                 temperature=0.0,
             ),
         )
-        text = (response.text or "").strip()
-        if not text:
+        text_out = (response.text or "").strip()
+        if not text_out:
             raise RuntimeError("STT khong tra ve van ban")
-        return text
+        return text_out
 
     last_error: Exception | None = None
     for attempt in range(1, retry_attempts + 1):
@@ -106,7 +145,6 @@ def transcribe_audio(
                 f"STT timeout sau {timeout_seconds}s (lan {attempt}/{retry_attempts})"
             )
             future.cancel()
-            # Do not block current request while background worker finishes.
             executor.shutdown(wait=False, cancel_futures=True)
         except ClientError as exc:
             last_error = exc
@@ -134,3 +172,26 @@ def transcribe_audio(
             time.sleep(0.4 * attempt)
 
     raise RuntimeError(f"STT failed: {last_error}") from last_error
+
+
+def transcribe_audio(
+    audio_bytes: bytes,
+    mime_type: str | None = None,
+    *,
+    domain_hints: list[str] | None = None,
+) -> str:
+    """
+    Chuyen audio thanh van ban tieng Viet.
+    mime_type: audio/webm, audio/wav, audio/mpeg, audio/mp4, ...
+    """
+    if not audio_bytes:
+        raise ValueError("Audio rong")
+
+    settings = get_settings()
+    mime = _normalize_mime(mime_type or "audio/webm")
+    provider = (getattr(settings, "stt_provider", None) or "gemini").strip().lower()
+
+    if provider == "groq":
+        return _transcribe_groq_whisper(audio_bytes, mime, domain_hints)
+
+    return _transcribe_gemini(audio_bytes, mime, domain_hints)

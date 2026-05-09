@@ -19,6 +19,21 @@ from core.llm.gemini_http import gemini_region_blocked
 _model = None
 
 
+def _contents_to_openai_messages(contents, system_instruction=None) -> list[dict]:
+    messages: list[dict] = []
+    if system_instruction:
+        messages.append({"role": "system", "content": system_instruction})
+    for item in contents or []:
+        role = item.get("role", "user")
+        if role == "model":
+            role = "assistant"
+        parts = item.get("parts") or []
+        text = " ".join((p.get("text") or "").strip() for p in parts if isinstance(p, dict)).strip()
+        if text:
+            messages.append({"role": role, "content": text})
+    return messages
+
+
 class _SimpleResponse:
     def __init__(self, text: str):
         self.text = text
@@ -99,24 +114,10 @@ class _LocalOpenAICompatWrapper:
         self._model = model
         self._timeout_seconds = timeout_seconds
 
-    def _to_openai_messages(self, contents, system_instruction=None):
-        messages = []
-        if system_instruction:
-            messages.append({"role": "system", "content": system_instruction})
-        for item in contents or []:
-            role = item.get("role", "user")
-            if role == "model":
-                role = "assistant"
-            parts = item.get("parts") or []
-            text = " ".join((p.get("text") or "").strip() for p in parts if isinstance(p, dict)).strip()
-            if text:
-                messages.append({"role": role, "content": text})
-        return messages
-
     def generate_content(self, contents, system_instruction=None):
         payload = {
             "model": self._model,
-            "messages": self._to_openai_messages(contents, system_instruction=system_instruction),
+            "messages": _contents_to_openai_messages(contents, system_instruction=system_instruction),
             "temperature": 0.2,
         }
         raw = json.dumps(payload).encode("utf-8")
@@ -136,6 +137,26 @@ class _LocalOpenAICompatWrapper:
         return _SimpleResponse(text=text)
 
 
+class _GroqChatWrapper:
+    """Groq Cloud chat completions (OpenAI-compatible)."""
+
+    def __init__(self, api_key: str, model: str, timeout_seconds: int):
+        from groq import Groq
+
+        self._client = Groq(api_key=api_key, timeout=timeout_seconds)
+        self._model = model
+
+    def generate_content(self, contents, system_instruction=None):
+        messages = _contents_to_openai_messages(contents, system_instruction=system_instruction)
+        completion = self._client.chat.completions.create(
+            model=self._model,
+            messages=messages,
+            temperature=0.2,
+        )
+        text = (completion.choices[0].message.content or "").strip()
+        return _SimpleResponse(text=text)
+
+
 def _build_gemini_wrapper():
     settings = get_settings()
     if not getattr(settings, "gemini_api_key", None):
@@ -151,6 +172,23 @@ def _build_gemini_wrapper():
     )
 
 
+def _build_groq_wrapper():
+    settings = get_settings()
+    key = (settings.groq_api_key or "").strip()
+    if not key:
+        raise RuntimeError(
+            "GROQ_API_KEY is not configured in settings/.env (required when CHAT_LLM_PROVIDER=groq)"
+        )
+    model = (settings.groq_model or "llama-3.3-70b-versatile").strip()
+    timeout = max(5, int(getattr(settings, "groq_timeout_seconds", 60)))
+    return _GroqChatWrapper(api_key=key, model=model, timeout_seconds=timeout)
+
+
+def _chat_llm_is_groq(settings=None) -> bool:
+    s = settings or get_settings()
+    return (getattr(s, "chat_llm_provider", "gemini") or "gemini").strip().lower() == "groq"
+
+
 def _build_local_wrapper():
     settings = get_settings()
     endpoint = (settings.local_llm_endpoint or "").strip()
@@ -164,7 +202,7 @@ def _build_local_wrapper():
 
 
 def get_gemini_model():
-    """Return routed model wrapper based on settings."""
+    """Return routed chat model wrapper (Gemini, Groq, or local) based on settings."""
     global _model
     if _model is not None:
         return _model
@@ -181,10 +219,16 @@ def get_gemini_model():
             _model = _build_local_wrapper()
             return _model
         except Exception:
-            _model = _build_gemini_wrapper()
+            if _chat_llm_is_groq(settings):
+                _model = _build_groq_wrapper()
+            else:
+                _model = _build_gemini_wrapper()
             return _model
 
-    # Default / safe mode for hosted environments.
-    _model = _build_gemini_wrapper()
+    # api_only
+    if _chat_llm_is_groq(settings):
+        _model = _build_groq_wrapper()
+    else:
+        _model = _build_gemini_wrapper()
     return _model
 

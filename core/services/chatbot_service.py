@@ -8,10 +8,12 @@ from core.services.vector_rag_service import get_relevant_context
 
 
 SYSTEM_INSTRUCTION = (
-    "Phân tích câu hỏi từ người dùng nếu không phải là câu hỏi y tế thì trả lời ngắn gọn và không đưa ra thông tin người dùng nếu họ không hỏi (dùng context khi cần). "
-    "Phát hiện hành vi người dùng ngay trong prompt để trả lời phù hợp và đúng trọng tâm, không đưa ra thông tin người dùng nếu họ không hỏi (dùng context khi cần). "
-    "Khi người dùng hỏi các thông tin về bản thân thì hãy sử dụng context để trả lời. "
-    
+    "Bạn là trợ lý sức khỏe tiếng Việt trong ứng dụng hồ sơ bệnh nhân. "
+    "Ưu tiên hỗ trợ câu hỏi y tế, giải thích dễ hiểu, câu ngắn nếu cần đọc loa; không chẩn đoán chắc chắn, không kê đơn hay thay bác sĩ. "
+    "Nếu câu hiện tại không liên quan y tế/hồ sơ (địa lý, tin học, thể thao, đố vui, kiến thức phổ thông,...): trả lời trúng điểm điều họ hỏi; "
+    "KHÔNG chào tên bệnh nhân, KHÔNG nhắc lịch thuốc, KHÔNG tự tóm tắt hồ sơ — kể cả khi họ đã gửi kèm khối '[NGỮ CẢNH]' (đó chỉ là tài liệu tham chiếu có điều kiện, khi không cần thì bỏ qua như không tồn tại). "
+    "Trò chuyện và yêu cầu bên lề khác: vẫn trả lời tự nhiên, có thể thêm một câu mời hỗ trợ sức khỏe nếu phù hợp — nhưng đừng lấn át ý họ hỏi. "
+    "Chỉ khi họ đang hỏi về sức khỏe, triệu chứng, điều trị, thuốc, hoặc thông tin trong hồ sơ của họ: khi đó hãy dùng ngữ cảnh bệnh nhân/RAG (nếu có), đúng trọng tâm, không lộ chi tiết hồ sơ nếu họ không hỏi tới. "
 )
 
 def _conversation_to_messages(conversation: Conversation, limit: int = 20) -> list[dict]:
@@ -29,9 +31,21 @@ def _conversation_to_messages(conversation: Conversation, limit: int = 20) -> li
 
 def _build_patient_context(patient: Patient) -> str:
     return (
-        f"[BENH NHAN]\n"
-        f"- Ho ten: {patient.full_name or 'chua co'}\n"
-        f"- Tom tat: {patient.medical_summary or 'chua co mo ta chi tiet'}\n"
+        f"[HỒ SƠ BỆNH NHÂN — chỉ áp dụng khi câu đang hỏi về y tế / thông tin này]\n"
+        f"- Họ tên: {patient.full_name or 'chưa có'}\n"
+        f"- Tóm tắt: {patient.medical_summary or 'chưa có mô tả chi tiết'}\n"
+    )
+
+
+def _wrap_retrieval_reference(inner: str) -> str:
+    """Model thường ưu tiên khối RAG có thuốc; bọc chỉ-dùng-khi-cần để câu bên lề không bị ép."""
+    trimmed = (inner or "").strip()
+    if not trimmed:
+        return ""
+    return (
+        "[NGỮ CẢNH THAM CHIẾU — Bỏ qua HOÀN TOÀN nếu tin nhắn hiện tại không hỏi về y tế, thuốc, triệu chứng, hoặc hồ sơ]\n"
+        "Không được mở bài hay kết thúc bằng việc đọc lại lịch thuốc nếu họ không nhắc tới điều đó trong câu hỏi.\n\n"
+        f"{trimmed}\n"
     )
 
 
@@ -73,16 +87,17 @@ def chat_with_gemini(
     # Keep only minimal patient context + vector retrieval.
     patient_context = _build_patient_context(patient)
     rag_context = get_relevant_context(db, patient_id=patient_id, query=user_message)
-    if rag_context:
-        patient_context = f"{patient_context}\n\n{rag_context}"
+    ref_block = _wrap_retrieval_reference(
+        f"{patient_context}\n\n{rag_context}" if rag_context else patient_context
+    )
+    assembled = (
+        ref_block.strip() + "\n\n────────────────\n[CÂU HIỆN TẠI — trả lời đúng dòng sau]\n"
+        if ref_block.strip()
+        else ""
+    )
+    assembled += user_message.strip()
 
-    user_content = {
-        "role": "user",
-        "parts": [
-            {"text": patient_context},
-            {"text": user_message},
-        ],
-    }
+    user_content = {"role": "user", "parts": [{"text": assembled}]}
 
     model = get_gemini_model()
 
