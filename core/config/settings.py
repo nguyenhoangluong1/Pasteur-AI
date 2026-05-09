@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     stt_whisper_extra_prompt: str = ""
     # Chuẩn hóa Unicode (NFC) + gọn khoảng trắng sau STT.
     stt_normalize_output: bool = True
+    # Noise guard cho mic rời:
+    # - off: tắt chặn
+    # - normal: chặn vừa phải (mặc định)
+    # - strict: chặn mạnh (ưu tiên không bịa, chấp nhận bỏ sót nhẹ)
+    stt_noise_guard_level: str = "normal"
+    # Số từ tối thiểu để coi là câu có nghĩa (trừ các câu rất ngắn dạng lệnh).
+    stt_min_words: int = 2
     voice_max_audio_bytes: int = 5 * 1024 * 1024
     chat_model_round_robin: bool = False
     # Routing LLM:

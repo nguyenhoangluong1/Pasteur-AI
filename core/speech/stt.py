@@ -100,6 +100,43 @@ def _looks_like_noise_hallucination(text: str) -> bool:
     return False
 
 
+def _fails_noise_guard(text: str, *, level: str, min_words: int) -> bool:
+    s = (text or "").strip().lower()
+    if not s:
+        return True
+    if level == "off":
+        return False
+
+    words = re.findall(r"\w+", s, flags=re.UNICODE)
+    if len(words) < max(1, min_words):
+        # Allow a few short command-like utterances.
+        short_ok = {"có", "không", "ừ", "ok", "dừng", "nghe", "tiếp", "rồi"}
+        if len(words) == 1 and words[0] in short_ok:
+            return False
+        return True
+
+    if _looks_like_noise_hallucination(s):
+        return True
+
+    filler = {"ơ", "ờ", "à", "ừ", "ừm", "um", "hmm", "ờm", "ah", "uh"}
+    filler_count = sum(1 for w in words if w in filler)
+    if len(words) >= 4 and filler_count / max(1, len(words)) > (0.55 if level == "normal" else 0.40):
+        return True
+
+    # Too many single-char tokens is often noisy chopped audio.
+    one_char = sum(1 for w in words if len(w) == 1)
+    if len(words) >= 6 and one_char / len(words) > (0.62 if level == "normal" else 0.50):
+        return True
+
+    # Strict mode: reject sentences with extreme repetition even if they pass baseline.
+    if level == "strict":
+        uniq_ratio = len(set(words)) / max(1, len(words))
+        if len(words) >= 8 and uniq_ratio < 0.45:
+            return True
+
+    return False
+
+
 def _build_whisper_prompt(hints: list[str], extra_from_env: str) -> str | None:
     parts: list[str] = [_WHISPER_STYLE_VI.strip()]
     extra = (extra_from_env or "").strip()
@@ -151,7 +188,9 @@ def _transcribe_groq_whisper(
         raise RuntimeError("Groq STT khong tra ve van ban")
     norm = getattr(settings, "stt_normalize_output", True)
     out = _post_process_transcript(raw, enabled=norm)
-    if _looks_like_noise_hallucination(out):
+    guard_level = (getattr(settings, "stt_noise_guard_level", "normal") or "normal").strip().lower()
+    min_words = max(1, int(getattr(settings, "stt_min_words", 2)))
+    if _fails_noise_guard(out, level=guard_level, min_words=min_words):
         raise RuntimeError(
             "STT khong nhan dien duoc loi noi ro rang (co the nhieu nen qua cao). "
             "Vui long noi gan mic hon va thu ghi am lai."
@@ -219,7 +258,9 @@ def _transcribe_gemini(
             executor.shutdown(wait=False, cancel_futures=True)
             norm = getattr(settings, "stt_normalize_output", True)
             out = _post_process_transcript(result, enabled=norm)
-            if _looks_like_noise_hallucination(out):
+            guard_level = (getattr(settings, "stt_noise_guard_level", "normal") or "normal").strip().lower()
+            min_words = max(1, int(getattr(settings, "stt_min_words", 2)))
+            if _fails_noise_guard(out, level=guard_level, min_words=min_words):
                 raise RuntimeError(
                     "STT khong nhan dien duoc loi noi ro rang (co the nhieu nen qua cao). "
                     "Vui long noi gan mic hon va thu ghi am lai."
