@@ -36,6 +36,9 @@ const state = {
   recording: false,
   activeAudioRequestId: 0,
   activeTtsPlaybackId: 0,
+  ttsPlaying: false,
+  activeTtsButton: null,
+  activeTtsAbortController: null,
   audioPrimed: false,
   showAssistantTextPreview: false,
 };
@@ -186,6 +189,32 @@ function stopActiveAudio() {
       URL.revokeObjectURL(prevUrl);
     } catch (_) {}
   }
+  try {
+    window.__pasteurAudioPlayer.currentTime = 0;
+  } catch (_) {}
+}
+
+function setTtsButtonUi(buttonEl, isPlaying) {
+  if (!buttonEl) return;
+  buttonEl.innerHTML = isPlaying
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12"/></svg><span>Dừng</span>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg><span>Nghe</span>';
+}
+
+function stopTtsPlayback(reason = "user_stop") {
+  state.activeTtsPlaybackId += 1;
+  state.ttsPlaying = false;
+  const prevBtn = state.activeTtsButton;
+  state.activeTtsButton = null;
+  if (prevBtn) setTtsButtonUi(prevBtn, false);
+  if (state.activeTtsAbortController) {
+    try {
+      state.activeTtsAbortController.abort();
+    } catch (_) {}
+    state.activeTtsAbortController = null;
+  }
+  stopActiveAudio();
+  if (statusText && reason === "user_stop") statusText.textContent = STATUS_IDLE;
 }
 
 function isExpectedPlayInterrupt(err) {
@@ -400,6 +429,8 @@ async function fetchTtsBlobFallback(text, voice) {
 
 async function playTtsStream(text, voice) {
   const playbackId = ++state.activeTtsPlaybackId;
+  const abortController = new AbortController();
+  state.activeTtsAbortController = abortController;
   console.info("[TTS] request stream", {
     playbackId,
     voice: voice || "default",
@@ -410,6 +441,7 @@ async function playTtsStream(text, voice) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, voice: voice || null }),
+      signal: abortController.signal,
     });
     if (!res.ok) {
       const errText = await res.text();
@@ -427,7 +459,12 @@ async function playTtsStream(text, voice) {
     }
     console.warn("[TTS] stream failed, trying /chat/tts fallback", err);
     const fallbackBlob = await fetchTtsBlobFallback(text, voice);
+    if (playbackId !== state.activeTtsPlaybackId) return;
     await playAudioFromBlob(fallbackBlob, playbackId);
+  } finally {
+    if (state.activeTtsAbortController === abortController) {
+      state.activeTtsAbortController = null;
+    }
   }
 }
 
@@ -435,9 +472,14 @@ async function playTtsForText(text, buttonEl) {
   primeAudioOutputFromGesture();
   const t = stripForTts(text);
   if (!t) return;
-  if (buttonEl) {
-    buttonEl.disabled = true;
+  if (state.ttsPlaying && state.activeTtsButton === buttonEl) {
+    stopTtsPlayback("user_stop");
+    return;
   }
+  if (state.ttsPlaying) stopTtsPlayback("switch_track");
+  state.ttsPlaying = true;
+  state.activeTtsButton = buttonEl || null;
+  if (buttonEl) setTtsButtonUi(buttonEl, true);
   if (statusText) statusText.textContent = "Đang tạo giọng đọc…";
   try {
     const voice =
@@ -451,7 +493,10 @@ async function playTtsForText(text, buttonEl) {
         : "Không phát được TTS.";
     }
   } finally {
-    if (buttonEl) buttonEl.disabled = false;
+    const stillThisPlayback = state.activeTtsButton === buttonEl;
+    state.ttsPlaying = false;
+    state.activeTtsButton = null;
+    if (stillThisPlayback && buttonEl) setTtsButtonUi(buttonEl, false);
     if (statusText) statusText.textContent = STATUS_IDLE;
   }
 }
