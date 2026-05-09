@@ -7,7 +7,7 @@ from core.db.models import Conversation, Message, Patient
 from core.llm import get_gemini_model
 from core.services.vector_rag_service import get_relevant_context
 from core.speech.stt_noise import (
-    looks_like_stt_spurious_content,
+    looks_like_stt_promo_or_template_hallucination,
     query_passes_reference_gate,
     query_should_use_rag,
 )
@@ -94,7 +94,7 @@ def chat_with_gemini(
         db.add(conv)
         db.flush()
 
-    if looks_like_stt_spurious_content(user_message):
+    if looks_like_stt_promo_or_template_hallucination(user_message):
         assistant_text = _PROMO_OR_OUTRO_NOISE_REPLY
         user_msg = Message(conversation_id=conv.id, role="user", content=user_message)
         assistant_msg = Message(conversation_id=conv.id, role="assistant", content=assistant_text)

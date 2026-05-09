@@ -84,6 +84,14 @@ def looks_like_stt_spurious_content(text: str) -> bool:
     )
 
 
+def looks_like_stt_promo_or_template_hallucination(text: str) -> bool:
+    """
+    Chỉ outro/promo kiểu máy (không gồm looks_like_lexically_impoverished).
+    Dùng để short-circuit chat: tránh chặn nhầm thoại ngắn/lặp tự nhiên.
+    """
+    return looks_like_media_promo_hallucination(text) or looks_like_video_outro_template(text)
+
+
 def looks_like_media_promo_hallucination(text: str) -> bool:
     """
     Whisper hay trả về câu outro/subscribe kiểu YouTube khi chỉ có nền nhiễu (silence + fan).

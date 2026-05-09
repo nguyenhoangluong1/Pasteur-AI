@@ -26,6 +26,9 @@ const API_BASE = resolveApiBase();
 /** Idle status when not loading / no error. */
 const STATUS_IDLE = "Sẵn sàng";
 
+/** Voice: POST /chat/audio đang chờ STT + chat backend (Groq/Gemini + noise guard server). */
+const STATUS_VOICE_PIPELINE = "Đang nhận diện giọng và soạn trả lời…";
+
 const state = {
   patientId: null,
   conversationId: null,
@@ -1308,9 +1311,6 @@ async function backendSendAudio(blob) {
   else if (blobType.includes("mp4") || blobType.includes("m4a")) audioExt = "mp4";
   fd.append("audio", blob, `recording.${audioExt}`);
   const voiceSel = document.getElementById("tts-voice-select");
-  if (voiceSel && voiceSel.value) {
-    fd.append("tts_voice", voiceSel.value);
-  }
   fd.append("include_tts", "false");
   if (!blob || blob.size < 16) {
     if (statusText) statusText.textContent = "Bản ghi quá ngắn, hãy nói thêm một chút.";
@@ -1319,23 +1319,40 @@ async function backendSendAudio(blob) {
     setSending(false);
     return;
   }
+
+  let voiceTypingEl = null;
   try {
+    if (messagesEl) {
+      voiceTypingEl = createTypingIndicator();
+      messagesEl.appendChild(voiceTypingEl);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+    if (statusText) statusText.textContent = STATUS_VOICE_PIPELINE;
+
     const sttApiStartMs = performance.now();
     const res = await fetch(`${API_BASE}/chat/audio`, { method: "POST", body: fd });
     const sttApiDoneMs = performance.now();
     const text = await res.text();
     const responseReadDoneMs = performance.now();
-    if (!res.ok) throw new Error(text || res.statusText);
+    if (!res.ok) {
+      const detail = parseFastApiErrorBody(text) || text || res.statusText;
+      throw new Error(detail);
+    }
     let data = {};
     try {
       data = JSON.parse(text);
     } catch (parseErr) {
-      throw new Error("Phản hồi audio không hợp lệ từ backend.");
+      throw new Error("Phản hồi từ máy chủ không đúng định dạng sau khi xử lý giọng nói.");
     }
     const parseDoneMs = performance.now();
     if (requestId !== state.activeAudioRequestId || state.patientId !== currentPatientId) {
+      if (voiceTypingEl?.parentNode) voiceTypingEl.remove();
+      voiceTypingEl = null;
       return;
     }
+    if (voiceTypingEl?.parentNode) voiceTypingEl.remove();
+    voiceTypingEl = null;
+
     state.conversationId = data.conversation_id;
     try {
       const convs = await api(
@@ -1395,18 +1412,33 @@ async function backendSendAudio(blob) {
     }
   } catch (err) {
     console.error(err);
+    if (voiceTypingEl?.parentNode) voiceTypingEl.remove();
+    voiceTypingEl = null;
+    const raw = err && typeof err.message === "string" ? err.message.trim() : "";
+    const detail = raw || "Lỗi không xác định.";
+    const userLine =
+      detail.length > 320
+        ? `${detail.slice(0, 317).trim()}…`
+        : detail;
     if (messagesEl) {
       appendMessage(
         "assistant",
-        "Could not process voice input (STT/TTS). Check microphone, HTTPS/localhost, and the API backend."
+        `Không xử lý được giọng nói (nhận dạng hoặc trả lời). Chi tiết: ${userLine}`
       );
+      messagesEl.scrollTop = messagesEl.scrollHeight;
     }
+    if (statusText) statusText.textContent = STATUS_IDLE;
   } finally {
+    if (voiceTypingEl?.parentNode) voiceTypingEl.remove();
     state.voiceSending = false;
     setMicUiState({ disabled: false });
-    // Truong hop da tra ve idle som o tren thi giu nguyen; neu co loi thi reset lai.
     if (state.sending) setSending(false);
-    if (statusText && statusText.textContent === "Đang soạn trả lời…") {
+    if (
+      statusText &&
+      statusText.textContent === STATUS_VOICE_PIPELINE &&
+      !state.voiceSending &&
+      !state.sending
+    ) {
       statusText.textContent = STATUS_IDLE;
     }
   }

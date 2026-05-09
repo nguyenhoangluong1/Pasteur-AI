@@ -113,10 +113,13 @@ def _transcribe_groq_whisper(
     client = Groq(api_key=key, timeout=timeout)
     model = (settings.groq_stt_model or "whisper-large-v3").strip()
 
-    hints = [h.strip() for h in (domain_hints or []) if h and h.strip()]
     extra = getattr(settings, "stt_whisper_extra_prompt", "") or ""
-    include_hints = bool(getattr(settings, "stt_whisper_include_hints", False))
-    prompt = _build_whisper_prompt(hints, extra, include_hints=include_hints)
+    include_hints_cfg = bool(getattr(settings, "stt_whisper_include_hints", False))
+    patient_hints_cfg = bool(getattr(settings, "stt_whisper_patient_hints_in_prompt", False))
+    hints = []
+    if include_hints_cfg and patient_hints_cfg:
+        hints = [h.strip() for h in (domain_hints or []) if h and h.strip()]
+    prompt = _build_whisper_prompt(hints, extra, include_hints=bool(hints))
 
     bio = BytesIO(audio_bytes)
     bio.name = _audio_filename_for_mime(mime)
@@ -159,10 +162,13 @@ def _transcribe_gemini(
     timeout_seconds = max(1, int(getattr(settings, "stt_timeout_seconds", 35)))
     retry_attempts = max(1, int(getattr(settings, "stt_retry_attempts", 2)))
 
-    hints = [h.strip() for h in (domain_hints or []) if h and h.strip()]
-    include_hints = bool(getattr(settings, "stt_whisper_include_hints", False))
+    include_hints_cfg = bool(getattr(settings, "stt_whisper_include_hints", False))
+    patient_hints_cfg = bool(getattr(settings, "stt_whisper_patient_hints_in_prompt", False))
+    hints: list[str] = []
+    if include_hints_cfg and patient_hints_cfg:
+        hints = [h.strip() for h in (domain_hints or []) if h and h.strip()]
     hint_block = ""
-    if include_hints and hints:
+    if hints:
         hint_block = (
             "\n\nTừ khóa có thể xuất hiện (chỉ ghi nếu nghe rõ): "
             + "; ".join(hints[:10])

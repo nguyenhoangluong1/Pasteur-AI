@@ -273,7 +273,11 @@ def chat_audio(
             detail=f"Audio too large ({audio_size} bytes). Max allowed is {max_audio_bytes} bytes.",
         )
     mime = audio.content_type or "audio/webm"
-    stt_hints = _extract_stt_hints(patient, db)
+    stt_hints: list[str] = []
+    if bool(getattr(settings, "stt_whisper_include_hints", False)) and bool(
+        getattr(settings, "stt_whisper_patient_hints_in_prompt", False)
+    ):
+        stt_hints = _extract_stt_hints(patient, db)
 
     try:
         transcript = transcribe_audio(audio_bytes, mime, domain_hints=stt_hints)

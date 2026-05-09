@@ -53,8 +53,10 @@ class Settings(BaseSettings):
     stt_normalize_output: bool = True
     # Lọc transcript: off | light | medium | strict (mặc định light — tránh chặn nhầm câu ngắn đúng)
     stt_noise_guard_level: str = "light"
-    # True = nhét tên thuốc/BN vào prompt Whisper (dễ bias khi chỉ có nền nhiễu). Mặc định tắt.
+    # Bật khối “gợi ý từ khóa” trong prompt STT (Groq/Gemini) — áp dụng chỉ khi đồng thời bật patient hints bên dưới.
     stt_whisper_include_hints: bool = False
+    # True = đưa gợi ý từ DB (tên BN, thuốc,...) vào prompt STT; rất dễ bias/hallucination khi nhiễu. Mặc định tắt.
+    stt_whisper_patient_hints_in_prompt: bool = False
     voice_max_audio_bytes: int = 5 * 1024 * 1024
     chat_model_round_robin: bool = False
     # Routing LLM:
