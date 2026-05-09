@@ -1,6 +1,6 @@
 # Pasteur AI
 
-Medical chat backend (FastAPI) + web UI: Gemini, optional Supabase/Postgres, RAG, STT/TTS.
+Medical chat backend (FastAPI) + web UI: Groq (LLM + Whisper STT) mặc định, Gemini tùy chọn, optional Supabase/Postgres, RAG, TTS (edge-tts).
 
 Public repo: [github.com/nguyenhoangluong1/Pasteur-AI](https://github.com/nguyenhoangluong1/Pasteur-AI).
 
@@ -11,7 +11,7 @@ python -m venv venv
 # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
-# Sửa .env: thêm GEMINI_API_KEY (và DB nếu dùng Postgres)
+# Sửa .env: thêm GROQ_API_KEY (và DB nếu dùng Postgres). Gemini nếu đặt CHAT_LLM_PROVIDER=gemini / STT_PROVIDER=gemini.
 
 source venv/bin/activate
 uvicorn core.api.main:app --reload --host 127.0.0.1 --port 8000
@@ -23,10 +23,12 @@ Giao diện chat: mở `http://127.0.0.1:8000/app/` (mic/STT cần HTTPS hoặc 
 
 | Biến | Mô tả |
 |------|--------|
-| `GEMINI_API_KEY` hoặc `GOOGLE_API_KEY` | Bắt buộc cho chat + STT |
+| `GROQ_API_KEY` | **Bắt buộc** mặc định cho chat + STT (Whisper qua Groq) |
+| `CHAT_LLM_PROVIDER`, `STT_PROVIDER` | Mặc định `groq`. Đặt `gemini` nếu chỉ dùng Google (`GEMINI_API_KEY`) |
+| `GEMINI_API_KEY` hoặc `GOOGLE_API_KEY` | Chỉ cần khi provider có nhánh Gemini |
 | `DATABASE_URL` *hoặc* `SUPABASE_*` | DB; không set thì dùng SQLite local |
-| `GEMINI_MODEL` | Tuỳ chọn, mặc định `gemini-2.5-flash` |
-| `LLM_ROUTER_MODE`, `LOCAL_LLM_*` | Tuỳ chọn offline mode (Qwen2.5-3B local); mặc định vẫn API |
+| `GEMINI_MODEL`, `GROQ_MODEL`, `GROQ_STT_MODEL` | Tuỳ chọn (xem `.env.example`) |
+| `LLM_ROUTER_MODE`, `LOCAL_LLM_*` | Tuỳ chọn offline mode (Qwen2.5-3B local); mặc định `api_only` |
 | `TTS_*` | Giọng / giới hạn ký tự TTS (edge-tts) |
 | `RAG_*` | Bật/tắt và tham số RAG |
 
@@ -34,7 +36,7 @@ Chi tiết mẫu: xem [`.env.example`](.env.example).
 
 ### Offline mode (optional extension)
 
-- Mặc định hệ thống chạy `LLM_ROUTER_MODE=api_only` (Gemini), phù hợp môi trường như Render free tier.
+- Mặc định `LLM_ROUTER_MODE=api_only` và chat qua Groq (tránh chặn khu vực Google API trên nhiều host).
 - Có thể bật local model (ví dụ Qwen2.5-3B) khi chạy trên máy cá nhân:
   - `LOCAL_LLM_ENABLED=true`
   - `LLM_ROUTER_MODE=local_only` hoặc `hybrid`

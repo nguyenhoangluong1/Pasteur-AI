@@ -257,6 +257,12 @@ def chat_audio(
     t_read_done = time.perf_counter()
     audio_size = len(audio_bytes)
     if audio_size == 0:
+        logger.warning(
+            "[VOICE_PIPELINE] request_id=%s patient_id=%s empty_audio filename=%s",
+            request_id,
+            patient_id,
+            getattr(audio, "filename", None),
+        )
         raise HTTPException(status_code=400, detail="Audio is empty")
     if audio_size > max_audio_bytes:
         raise HTTPException(
@@ -270,6 +276,21 @@ def chat_audio(
         transcript = transcribe_audio(audio_bytes, mime, domain_hints=stt_hints)
         t_stt_done = time.perf_counter()
     except Exception as exc:
+        logger.warning(
+            "[VOICE_PIPELINE] request_id=%s patient_id=%s stt_failed bytes=%s mime=%s exc_type=%s detail=%s",
+            request_id,
+            patient_id,
+            audio_size,
+            mime,
+            type(exc).__name__,
+            str(exc)[:1200],
+        )
+        groq_http = _http_from_groq_error(exc)
+        if groq_http is not None:
+            raise groq_http from exc
+        if isinstance(exc, ClientError):
+            status = suggest_status_for_gemini_client_error(exc)
+            raise HTTPException(status_code=status, detail=http_detail_message(exc)) from exc
         raise HTTPException(status_code=400, detail=f"STT failed: {exc}") from exc
 
     try:

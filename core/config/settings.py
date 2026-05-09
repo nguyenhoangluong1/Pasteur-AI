@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     supabase_db_password: str | None = None
     supabase_db_name: str = "postgres"
 
-    # Gemini / Google Gen AI — chỉ cần một trong hai biến (ưu tiên GEMINI_API_KEY nếu cả hai đều có)
+    # Gemini / Google Gen AI — khi CHAT_LLM_PROVIDER=gemini hoặc STT_PROVIDER=gemini
     gemini_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY"),
@@ -36,10 +36,10 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.3-70b-versatile"
     groq_stt_model: str = "whisper-large-v3-turbo"
     groq_timeout_seconds: int = 60
-    # gemini | groq (groq cần GROQ_API_KEY)
-    chat_llm_provider: str = "gemini"
-    # gemini | groq (groq cần GROQ_API_KEY)
-    stt_provider: str = "gemini"
+    # gemini | groq (mặc định groq — ổn trên Render/hosting nhiều khu vực)
+    chat_llm_provider: str = "groq"
+    # gemini | groq
+    stt_provider: str = "groq"
 
     # STT Gemini: tach model rieng vi Gemma chat model khong toi uu cho audio.
     stt_model: str | None = "gemini-2.5-flash"
@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     voice_max_audio_bytes: int = 5 * 1024 * 1024
     chat_model_round_robin: bool = False
     # Routing LLM:
-    # - api_only: luôn dùng Gemini (mặc định, phù hợp Render free tier)
+    # - api_only: dùng CHAT_LLM_PROVIDER (mặc định groq); gemini nếu chỉ định
     # - local_only: chỉ dùng local model
     # - hybrid: ưu tiên local, lỗi thì fallback Gemini
     llm_router_mode: str = "api_only"
