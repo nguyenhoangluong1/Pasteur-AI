@@ -201,6 +201,27 @@ function setTtsButtonUi(buttonEl, isPlaying) {
     : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg><span>Nghe</span>';
 }
 
+function attachTtsUiResetOnPlayerDone(player, buttonEl) {
+  if (!player || !buttonEl) return;
+  const onDone = () => {
+    cleanup();
+    if (state.activeTtsButton === buttonEl) {
+      state.ttsPlaying = false;
+      state.activeTtsButton = null;
+      setTtsButtonUi(buttonEl, false);
+      if (statusText) statusText.textContent = STATUS_IDLE;
+    }
+  };
+  const cleanup = () => {
+    player.removeEventListener("ended", onDone);
+    player.removeEventListener("pause", onDone);
+    player.removeEventListener("error", onDone);
+  };
+  player.addEventListener("ended", onDone, { once: true });
+  player.addEventListener("pause", onDone, { once: true });
+  player.addEventListener("error", onDone, { once: true });
+}
+
 function stopTtsPlayback(reason = "user_stop") {
   state.activeTtsPlaybackId += 1;
   state.ttsPlaying = false;
@@ -529,6 +550,12 @@ async function playTtsForText(text, buttonEl) {
     }
   } finally {
     const stillThisPlayback = state.activeTtsButton === buttonEl;
+    const player = window.__pasteurAudioPlayer;
+    const stillPlayingNow = !!(player && !player.paused && !player.ended);
+    if (stillThisPlayback && stillPlayingNow) {
+      attachTtsUiResetOnPlayerDone(player, buttonEl);
+      return;
+    }
     state.ttsPlaying = false;
     state.activeTtsButton = null;
     if (stillThisPlayback && buttonEl) setTtsButtonUi(buttonEl, false);
