@@ -12,6 +12,7 @@ import time
 import unicodedata
 from functools import lru_cache
 from io import BytesIO
+from collections import Counter
 
 from google import genai
 from google.genai import types
@@ -64,6 +65,41 @@ def _post_process_transcript(text: str, *, enabled: bool) -> str:
     return s.strip()
 
 
+def _looks_like_noise_hallucination(text: str) -> bool:
+    """
+    Guardrail: reject obvious STT hallucinations caused by heavy noise/silence.
+    Keep this conservative to avoid false positives.
+    """
+    s = (text or "").strip().lower()
+    if len(s) < 2:
+        return True
+    if len(s) > 60 and " " not in s:
+        return True
+
+    words = re.findall(r"\w+", s, flags=re.UNICODE)
+    if len(words) < 3:
+        return False
+
+    # Too much repetition -> likely noise hallucination.
+    uniq_ratio = len(set(words)) / max(1, len(words))
+    if len(words) >= 10 and uniq_ratio < 0.33:
+        return True
+
+    if len(words) >= 8:
+        bigrams = list(zip(words, words[1:]))
+        if bigrams:
+            counts = Counter(bigrams)
+            top = counts.most_common(1)[0][1]
+            if top / len(bigrams) > 0.38:
+                return True
+
+    # Very long character runs (e.g. "aaaaaaa") are noise artifacts.
+    if re.search(r"(.)\1{6,}", s):
+        return True
+
+    return False
+
+
 def _build_whisper_prompt(hints: list[str], extra_from_env: str) -> str | None:
     parts: list[str] = [_WHISPER_STYLE_VI.strip()]
     extra = (extra_from_env or "").strip()
@@ -114,7 +150,13 @@ def _transcribe_groq_whisper(
     if not raw:
         raise RuntimeError("Groq STT khong tra ve van ban")
     norm = getattr(settings, "stt_normalize_output", True)
-    return _post_process_transcript(raw, enabled=norm)
+    out = _post_process_transcript(raw, enabled=norm)
+    if _looks_like_noise_hallucination(out):
+        raise RuntimeError(
+            "STT khong nhan dien duoc loi noi ro rang (co the nhieu nen qua cao). "
+            "Vui long noi gan mic hon va thu ghi am lai."
+        )
+    return out
 
 
 def _transcribe_gemini(
@@ -176,7 +218,13 @@ def _transcribe_gemini(
             result = future.result(timeout=timeout_seconds)
             executor.shutdown(wait=False, cancel_futures=True)
             norm = getattr(settings, "stt_normalize_output", True)
-            return _post_process_transcript(result, enabled=norm)
+            out = _post_process_transcript(result, enabled=norm)
+            if _looks_like_noise_hallucination(out):
+                raise RuntimeError(
+                    "STT khong nhan dien duoc loi noi ro rang (co the nhieu nen qua cao). "
+                    "Vui long noi gan mic hon va thu ghi am lai."
+                )
+            return out
         except concurrent.futures.TimeoutError:
             last_error = RuntimeError(
                 f"STT timeout sau {timeout_seconds}s (lan {attempt}/{retry_attempts})"
