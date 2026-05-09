@@ -2,9 +2,11 @@ from collections.abc import Sequence
 
 from sqlalchemy.orm import Session
 
+from core.config import get_settings
 from core.db.models import Conversation, Message, Patient
 from core.llm import get_gemini_model
 from core.services.vector_rag_service import get_relevant_context
+from core.speech.stt_noise import query_should_use_rag
 
 
 SYSTEM_INSTRUCTION = (
@@ -84,9 +86,18 @@ def chat_with_gemini(
 
     history_contents = _conversation_to_messages(conv)
 
-    # Keep only minimal patient context + vector retrieval.
+    # Hồ sơ tối thiểu + RAG chỉ khi câu đủ dài/rõ — tránh embed transcript rác và kéo chunk BN vào prompt.
     patient_context = _build_patient_context(patient)
-    rag_context = get_relevant_context(db, patient_id=patient_id, query=user_message)
+    settings = get_settings()
+    rag_context = ""
+    if query_should_use_rag(
+        user_message,
+        rag_enabled=bool(settings.rag_enabled),
+        gate_short_queries=bool(getattr(settings, "rag_gate_short_queries", True)),
+        min_chars=int(getattr(settings, "rag_min_query_chars", 8)),
+        min_words=int(getattr(settings, "rag_min_query_words", 2)),
+    ):
+        rag_context = get_relevant_context(db, patient_id=patient_id, query=user_message)
     ref_block = _wrap_retrieval_reference(
         f"{patient_context}\n\n{rag_context}" if rag_context else patient_context
     )

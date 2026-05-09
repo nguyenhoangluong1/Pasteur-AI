@@ -51,13 +51,10 @@ class Settings(BaseSettings):
     stt_whisper_extra_prompt: str = ""
     # Chuẩn hóa Unicode (NFC) + gọn khoảng trắng sau STT.
     stt_normalize_output: bool = True
-    # Noise guard cho mic rời:
-    # - off: tắt chặn
-    # - normal: chặn vừa phải (mặc định)
-    # - strict: chặn mạnh (ưu tiên không bịa, chấp nhận bỏ sót nhẹ)
-    stt_noise_guard_level: str = "normal"
-    # Số từ tối thiểu để coi là câu có nghĩa (trừ các câu rất ngắn dạng lệnh).
-    stt_min_words: int = 2
+    # Lọc transcript: off | light | medium | strict (mặc định light — tránh chặn nhầm câu ngắn đúng)
+    stt_noise_guard_level: str = "light"
+    # True = nhét tên thuốc/BN vào prompt Whisper (dễ bias khi chỉ có nền nhiễu). Mặc định tắt.
+    stt_whisper_include_hints: bool = False
     voice_max_audio_bytes: int = 5 * 1024 * 1024
     chat_model_round_robin: bool = False
     # Routing LLM:
@@ -79,6 +76,11 @@ class Settings(BaseSettings):
 
     # Vector RAG (thiet ke nhe cho Raspberry Pi)
     rag_enabled: bool = True
+    # Chỉ gắn RAG khi câu đủ dài — tránh embed transcript rác + kéo chunk hồ sơ vào context
+    rag_gate_short_queries: bool = True
+    # Hai điều kiện cùng lúc (AND): đủ ký tự và đủ từ — giữ thấp để vẫn RAG cho triệu chứng ngắn (vd. "đau đầu").
+    rag_min_query_chars: int = 8
+    rag_min_query_words: int = 2
     rag_embedding_dims: int = 128
     rag_top_k: int = 4
     rag_index_interval_seconds: int = 300

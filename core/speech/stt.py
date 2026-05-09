@@ -12,30 +12,28 @@ import time
 import unicodedata
 from functools import lru_cache
 from io import BytesIO
-from collections import Counter
 
 from google import genai
 from google.genai import types
 from google.genai.errors import ClientError
 
 from core.config import get_settings
+from core.speech.stt_noise import transcript_acceptable
 
-# Whisper: prompt khớp ngôn ngữ nói + từ vựng liên quan; tránh quá dài (API có giới hạn).
+# Whisper: chỉ hướng dẫn style — KHÔNG nhét tên thuốc/BN vào prompt mặc định (gây bias khi nhiễu).
 _WHISPER_STYLE_VI = (
-    "Bản phiên âm tiếng Việt, có dấu đầy đủ, đúng chính tả thông dụng. "
-    "Một lớp thoại duy nhất, không ghi chú thích hay nhãn. "
-    "Bỏ qua tiếng hít thở, tiếng vỗ miệng, tiếng gõ bàn phím/mic, "
-    "và các từ đệm rời rạc (ví dụ ừ, à, hả, hở) nếu không mang nghĩa. "
-    "Không bịa nội dung nếu không nghe rõ; có thể bỏ qua đoạn chỉ là ồn nền."
+    "Bản phiên âm tiếng Việt, có dấu đầy đủ. "
+    "Một lớp thoại duy nhất, không chú thích. "
+    "Bỏ qua tiếng hít thở, gõ phím, gió mic nếu không phải lời nói. "
+    "Nếu không nghe rõ lời người nói, trả về đoạn trống hoặc rất ngắn thay vì đoán."
 )
 
 _GEMINI_STT_SYSTEM_VI = (
     "Bạn là công cụ phiên âm tiếng Việt. "
-    "Nghe audio và ghi lại đúng lời người nói, có dấu đầy đủ, chính tả thông dụng. "
-    "Bỏ qua tạp âm môi trường (quạt, xe, trẻ em, click chuột, nhạc nền mờ, gió mic). "
-    "Bỏ qua tiếng hít thở, lắp bắp không mang nghĩa; giữ từ đệm có chức năng (ví dụ 'ạ', 'nhé' nếu là phần câu). "
-    "Không đoán thêm nếu không nghe rõ; không thêm lời dẫn hay giải thích. "
-    "Thuật ngữ y khoa và tên thuốc: ưu tiên viết đúng dạng tiếng Việt thường gặp."
+    "Nghe audio và ghi lại đúng lời người nói, có dấu đầy đủ. "
+    "Bỏ qua tạp âm môi trường (quạt, xe, click, nhạc nền mờ). "
+    "Không đoán thêm nếu không nghe rõ; không giải thích. "
+    "Thuật ngữ y khoa: giữ đúng nếu nghe được, không bịa."
 )
 
 
@@ -65,85 +63,21 @@ def _post_process_transcript(text: str, *, enabled: bool) -> str:
     return s.strip()
 
 
-def _looks_like_noise_hallucination(text: str) -> bool:
-    """
-    Guardrail: reject obvious STT hallucinations caused by heavy noise/silence.
-    Keep this conservative to avoid false positives.
-    """
-    s = (text or "").strip().lower()
-    if len(s) < 2:
-        return True
-    if len(s) > 60 and " " not in s:
-        return True
-
-    words = re.findall(r"\w+", s, flags=re.UNICODE)
-    if len(words) < 3:
-        return False
-
-    # Too much repetition -> likely noise hallucination.
-    uniq_ratio = len(set(words)) / max(1, len(words))
-    if len(words) >= 10 and uniq_ratio < 0.33:
-        return True
-
-    if len(words) >= 8:
-        bigrams = list(zip(words, words[1:]))
-        if bigrams:
-            counts = Counter(bigrams)
-            top = counts.most_common(1)[0][1]
-            if top / len(bigrams) > 0.38:
-                return True
-
-    # Very long character runs (e.g. "aaaaaaa") are noise artifacts.
-    if re.search(r"(.)\1{6,}", s):
-        return True
-
-    return False
-
-
-def _fails_noise_guard(text: str, *, level: str, min_words: int) -> bool:
-    s = (text or "").strip().lower()
-    if not s:
-        return True
-    if level == "off":
-        return False
-
-    words = re.findall(r"\w+", s, flags=re.UNICODE)
-    if len(words) < max(1, min_words):
-        # Allow a few short command-like utterances.
-        short_ok = {"có", "không", "ừ", "ok", "dừng", "nghe", "tiếp", "rồi"}
-        if len(words) == 1 and words[0] in short_ok:
-            return False
-        return True
-
-    if _looks_like_noise_hallucination(s):
-        return True
-
-    filler = {"ơ", "ờ", "à", "ừ", "ừm", "um", "hmm", "ờm", "ah", "uh"}
-    filler_count = sum(1 for w in words if w in filler)
-    if len(words) >= 4 and filler_count / max(1, len(words)) > (0.55 if level == "normal" else 0.40):
-        return True
-
-    # Too many single-char tokens is often noisy chopped audio.
-    one_char = sum(1 for w in words if len(w) == 1)
-    if len(words) >= 6 and one_char / len(words) > (0.62 if level == "normal" else 0.50):
-        return True
-
-    # Strict mode: reject sentences with extreme repetition even if they pass baseline.
-    if level == "strict":
-        uniq_ratio = len(set(words)) / max(1, len(words))
-        if len(words) >= 8 and uniq_ratio < 0.45:
-            return True
-
-    return False
-
-
-def _build_whisper_prompt(hints: list[str], extra_from_env: str) -> str | None:
+def _build_whisper_prompt(
+    hints: list[str],
+    extra_from_env: str,
+    *,
+    include_hints: bool,
+) -> str | None:
     parts: list[str] = [_WHISPER_STYLE_VI.strip()]
     extra = (extra_from_env or "").strip()
     if extra:
         parts.append(extra)
-    if hints:
-        parts.append("Từ khóa ưu tiên (giữ đúng nếu nghe thấy): " + "; ".join(hints[:24]))
+    if include_hints and hints:
+        parts.append(
+            "Từ khóa có thể xuất hiện (chỉ ghi nếu nghe rõ): "
+            + "; ".join(hints[:16])
+        )
     joined = " ".join(parts).strip()
     return joined if joined else None
 
@@ -151,6 +85,15 @@ def _build_whisper_prompt(hints: list[str], extra_from_env: str) -> str | None:
 @lru_cache(maxsize=1)
 def _get_stt_client(api_key: str):
     return genai.Client(api_key=api_key)
+
+
+def _apply_noise_gate(text: str, settings) -> None:
+    level = (getattr(settings, "stt_noise_guard_level", "light") or "light").strip().lower()
+    if not transcript_acceptable(text, level=level):
+        raise RuntimeError(
+            "Không nhận diện được lời nói rõ ràng (nền nhiễu hoặc không có tiếng). "
+            "Hãy nói gần mic hơn hoặc giảm tiếng xung quanh rồi thử lại."
+        )
 
 
 def _transcribe_groq_whisper(
@@ -171,7 +114,8 @@ def _transcribe_groq_whisper(
 
     hints = [h.strip() for h in (domain_hints or []) if h and h.strip()]
     extra = getattr(settings, "stt_whisper_extra_prompt", "") or ""
-    prompt = _build_whisper_prompt(hints, extra)
+    include_hints = bool(getattr(settings, "stt_whisper_include_hints", False))
+    prompt = _build_whisper_prompt(hints, extra, include_hints=include_hints)
 
     bio = BytesIO(audio_bytes)
     bio.name = _audio_filename_for_mime(mime)
@@ -185,16 +129,12 @@ def _transcribe_groq_whisper(
     )
     raw = (getattr(tr, "text", None) or "").strip()
     if not raw:
-        raise RuntimeError("Groq STT khong tra ve van ban")
+        raise RuntimeError(
+            "Không có giọng nói rõ trên bản ghi. Thử nói to hơn hoặc gần mic."
+        )
     norm = getattr(settings, "stt_normalize_output", True)
     out = _post_process_transcript(raw, enabled=norm)
-    guard_level = (getattr(settings, "stt_noise_guard_level", "normal") or "normal").strip().lower()
-    min_words = max(1, int(getattr(settings, "stt_min_words", 2)))
-    if _fails_noise_guard(out, level=guard_level, min_words=min_words):
-        raise RuntimeError(
-            "STT khong nhan dien duoc loi noi ro rang (co the nhieu nen qua cao). "
-            "Vui long noi gan mic hon va thu ghi am lai."
-        )
+    _apply_noise_gate(out, settings)
     return out
 
 
@@ -219,16 +159,17 @@ def _transcribe_gemini(
     retry_attempts = max(1, int(getattr(settings, "stt_retry_attempts", 2)))
 
     hints = [h.strip() for h in (domain_hints or []) if h and h.strip()]
+    include_hints = bool(getattr(settings, "stt_whisper_include_hints", False))
     hint_block = ""
-    if hints:
+    if include_hints and hints:
         hint_block = (
-            "\n\nTừ khóa ưu tiên (giữ đúng nếu nghe thấy): "
+            "\n\nTừ khóa có thể xuất hiện (chỉ ghi nếu nghe rõ): "
             + "; ".join(hints[:10])
         )
 
     prompt = (
         _GEMINI_STT_SYSTEM_VI
-        + " Chỉ trả về bản ghi chép, không giả thích, không thêm ngoặc hay tiền tố."
+        + " Chỉ trả về bản ghi chép, không giả thích."
         + hint_block
     )
 
@@ -258,13 +199,7 @@ def _transcribe_gemini(
             executor.shutdown(wait=False, cancel_futures=True)
             norm = getattr(settings, "stt_normalize_output", True)
             out = _post_process_transcript(result, enabled=norm)
-            guard_level = (getattr(settings, "stt_noise_guard_level", "normal") or "normal").strip().lower()
-            min_words = max(1, int(getattr(settings, "stt_min_words", 2)))
-            if _fails_noise_guard(out, level=guard_level, min_words=min_words):
-                raise RuntimeError(
-                    "STT khong nhan dien duoc loi noi ro rang (co the nhieu nen qua cao). "
-                    "Vui long noi gan mic hon va thu ghi am lai."
-                )
+            _apply_noise_gate(out, settings)
             return out
         except concurrent.futures.TimeoutError:
             last_error = RuntimeError(
