@@ -1194,7 +1194,12 @@ async function backendSendAudio(blob) {
   const fd = new FormData();
   fd.append("patient_id", currentPatientId);
   if (currentConversationId) fd.append("conversation_id", currentConversationId);
-  fd.append("audio", blob, "recording.webm");
+  const blobType = ((blob && blob.type) || "").toLowerCase();
+  let audioExt = "webm";
+  if (blobType.includes("wav")) audioExt = "wav";
+  else if (blobType.includes("mpeg") || blobType.includes("mp3")) audioExt = "mp3";
+  else if (blobType.includes("mp4") || blobType.includes("m4a")) audioExt = "mp4";
+  fd.append("audio", blob, `recording.${audioExt}`);
   const voiceSel = document.getElementById("tts-voice-select");
   if (voiceSel && voiceSel.value) {
     fd.append("tts_voice", voiceSel.value);

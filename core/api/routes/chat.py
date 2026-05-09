@@ -33,7 +33,10 @@ def _http_from_groq_error(exc: Exception) -> HTTPException | None:
     if _GroqAPIError is None or not isinstance(exc, _GroqAPIError):
         return None
     status = getattr(exc, "status_code", None)
-    code = 429 if status == 429 else 502
+    if isinstance(status, int) and 400 <= status < 500:
+        code = status
+    else:
+        code = 502
     return HTTPException(status_code=code, detail=f"Groq API: {exc}")
 
 
