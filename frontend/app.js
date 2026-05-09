@@ -227,6 +227,39 @@ function isAutoplayBlockedError(err) {
   return err.name === "NotAllowedError";
 }
 
+function waitForPlaybackEnded(player, playbackId) {
+  return new Promise((resolve, reject) => {
+    if (!player) {
+      resolve();
+      return;
+    }
+    const onEnded = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error("Audio playback error"));
+    };
+    const onAbortLike = () => {
+      if (playbackId !== state.activeTtsPlaybackId) {
+        cleanup();
+        const e = new Error("Playback aborted");
+        e.name = "AbortError";
+        reject(e);
+      }
+    };
+    const cleanup = () => {
+      player.removeEventListener("ended", onEnded);
+      player.removeEventListener("error", onError);
+      player.removeEventListener("pause", onAbortLike);
+    };
+    player.addEventListener("ended", onEnded, { once: true });
+    player.addEventListener("error", onError, { once: true });
+    player.addEventListener("pause", onAbortLike);
+  });
+}
+
 function primeAudioOutputFromGesture() {
   if (state.audioPrimed) return;
   try {
@@ -270,6 +303,7 @@ async function playAudioFromBlob(blob, playbackId) {
     throw err;
   }
   console.info("[TTS] blob playback started", { playbackId });
+  await waitForPlaybackEnded(player, playbackId);
 }
 
 function canStreamMp3WithMediaSource() {
@@ -380,6 +414,7 @@ async function playAudioFromReadableStreamViaMse(res, playbackId) {
   });
 
   console.info("[TTS] MSE stream playback started", { playbackId, mimeType });
+  await waitForPlaybackEnded(player, playbackId);
 }
 
 async function playAudioFromReadableStream(res, playbackId, mimeType = "audio/mpeg") {
