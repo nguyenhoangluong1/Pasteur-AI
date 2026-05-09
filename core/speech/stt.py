@@ -18,6 +18,7 @@ from google.genai import types
 from google.genai.errors import ClientError
 
 from core.config import get_settings
+from core.speech.audio_energy_gate import raise_if_wav_too_quiet_or_flat
 from core.speech.audio_preprocess import preprocess_audio_for_stt
 from core.speech.stt_noise import transcript_acceptable
 
@@ -261,6 +262,17 @@ def transcribe_audio(
     )
     if not audio_bytes:
         raise ValueError("Audio rong sau tien xu ly")
+
+    if "wav" in mime.lower() and bool(getattr(settings, "stt_wav_energy_gate", True)):
+        raise_if_wav_too_quiet_or_flat(
+            audio_bytes,
+            enabled=True,
+            min_peak=float(getattr(settings, "stt_wav_min_peak", 0.024)),
+            min_window_rms=float(getattr(settings, "stt_wav_min_window_rms", 0.0065)),
+            min_modulation=float(getattr(settings, "stt_wav_min_modulation", 1.22)),
+            loud_peak_bypass=float(getattr(settings, "stt_wav_loud_peak_bypass", 0.072)),
+        )
+
     provider = (getattr(settings, "stt_provider", None) or "groq").strip().lower()
 
     if provider == "groq":

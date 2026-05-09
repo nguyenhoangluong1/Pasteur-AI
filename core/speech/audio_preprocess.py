@@ -1,7 +1,7 @@
 """
 Tiền xử lý âm thanh trước STT (tuỳ chọn).
 
-- ffmpeg_highpass: high-pass ~120 Hz + mono 16 kHz WAV (giảm gió/quạt thấp, chuẩn hoá cho Whisper).
+- ffmpeg_highpass / ffmpeg_bandpass: high-pass + low-pass dải thoại + mono 16 kHz WAV (giảm gió/HF hiss).
   Cần ffmpeg trong PATH hoặc đường dẫn đầy đủ qua STT_FFMPEG_BIN. Thất bại → dùng nguyên bản ghi.
 """
 
@@ -17,6 +17,9 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 _FFMPEG_MISSING_LOGGED = False
 
+# Dải thoại gọn + cắt gió thấp; low-pass giảm nhiễu HF không mang ngữ âm rõ cho Whisper 16 kHz.
+_FFMPEG_SPEECH_AF = "highpass=f=150,lowpass=f=6800"
+
 
 def preprocess_audio_for_stt(
     audio_bytes: bytes,
@@ -29,11 +32,11 @@ def preprocess_audio_for_stt(
     m = (mode or "none").strip().lower()
     if m == "none" or not audio_bytes:
         return audio_bytes, mime
-    if m != "ffmpeg_highpass":
+    if m not in ("ffmpeg_highpass", "ffmpeg_bandpass"):
         logger.warning("Unknown STT audio preprocess mode %r — skip.", mode)
         return audio_bytes, mime
 
-    out = _ffmpeg_highpass_wav(audio_bytes, mime, ffmpeg_bin=ffmpeg_bin)
+    out = _ffmpeg_speech_chain_wav(audio_bytes, mime, ffmpeg_bin=ffmpeg_bin)
     if out:
         return out, "audio/wav"
     return audio_bytes, mime
@@ -95,7 +98,7 @@ def _ffmpeg_highpass_wav(audio_bytes: bytes, mime: str, *, ffmpeg_bin: str) -> b
             "-i",
             in_path,
             "-af",
-            "highpass=f=120",
+            _FFMPEG_SPEECH_AF,
             "-ar",
             "16000",
             "-ac",

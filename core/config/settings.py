@@ -55,9 +55,16 @@ class Settings(BaseSettings):
     stt_noise_guard_level: str = "light"
     # True = nhét tên thuốc/BN vào prompt Whisper (dễ bias khi chỉ có nền nhiễu). Mặc định tắt.
     stt_whisper_include_hints: bool = False
-    # none | ffmpeg_highpass — high-pass + WAV mono 16 kHz trước Whisper (cần ffmpeg).
-    stt_audio_preprocess: str = "none"
+    # none | ffmpeg_highpass | ffmpeg_bandpass — dải thoại + WAV mono 16 kHz (cần ffmpeg; thiếu → giữ file gốc).
+    stt_audio_preprocess: str = "ffmpeg_highpass"
     stt_ffmpeg_bin: str = "ffmpeg"
+    # Sau preprocess WAV: chặn clip quá nhỏ / nền đều (peak + RMS cửa sổ + độ biến động).
+    stt_wav_energy_gate: bool = True
+    stt_wav_min_peak: float = 0.024
+    stt_wav_min_window_rms: float = 0.0065
+    stt_wav_min_modulation: float = 1.22
+    # Peak cao → bỏ qua kiểm tra modulation (tiếng đều nhưng rất to).
+    stt_wav_loud_peak_bypass: float = 0.072
     voice_max_audio_bytes: int = 5 * 1024 * 1024
     chat_model_round_robin: bool = False
     # Routing LLM:

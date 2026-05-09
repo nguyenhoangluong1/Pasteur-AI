@@ -1109,13 +1109,16 @@ function normalizeTranscriptText(value) {
   return (value || "").replace(/\s+/g, " ").trim();
 }
 
-/** Ngưỡng năng lượng (float -1..1 sau decode): quá thấp ≈ chỉ nền → không gửi STT (giảm hallucination). */
-const VOICE_GATE_MIN_RMS = 0.003;
-const VOICE_GATE_MIN_PEAK = 0.02;
+/** Khớp cổng WAV backend: peak + RMS cửa sổ ~100 ms + độ biến động (chặn nền đều). */
+const VOICE_GATE_MIN_PEAK = 0.024;
+const VOICE_GATE_MIN_WINDOW_RMS = 0.0065;
+const VOICE_GATE_MIN_MODULATION = 1.22;
+const VOICE_LOUD_PEAK_BYPASS = 0.072;
 
 /**
- * Đo RMS / peak trên kênh đầu — decode lỗi thì coi như pass (gửi server).
- * @returns {{ ok: boolean, rms: number, peak: number, durationSec: number, decodeFailed?: boolean }}
+ * Decode blob → mono trung bình kênh; peak, RMS toàn đoạn, max/mean RMS cửa sổ, modulation.
+ * decode lỗi → pass (gửi server).
+ * @returns {{ ok: boolean, rms: number, peak: number, durationSec: number, decodeFailed?: boolean, modulation?: number, maxWindowRms?: number }}
  */
 async function measureVoiceBlobEnergy(blob) {
   if (!blob || !blob.size) {
@@ -1129,27 +1132,57 @@ async function measureVoiceBlobEnergy(blob) {
   try {
     const ab = await blob.arrayBuffer();
     const audioBuffer = await ctx.decodeAudioData(ab.slice(0));
-    const data = audioBuffer.getChannelData(0);
-    const n = data.length;
-    if (!n) {
+    const ch = audioBuffer.numberOfChannels;
+    const len = audioBuffer.length;
+    if (!len) {
       return { ok: false, rms: 0, peak: 0, durationSec: 0 };
+    }
+    const mono = new Float32Array(len);
+    for (let i = 0; i < len; i++) {
+      let s = 0;
+      for (let c = 0; c < ch; c++) {
+        s += audioBuffer.getChannelData(c)[i];
+      }
+      mono[i] = s / ch;
     }
     let sumSq = 0;
     let peak = 0;
-    for (let i = 0; i < n; i++) {
-      const v = data[i];
+    for (let i = 0; i < len; i++) {
+      const v = mono[i];
       sumSq += v * v;
       const a = Math.abs(v);
       if (a > peak) peak = a;
     }
-    const rms = Math.sqrt(sumSq / n);
-    const durationSec = audioBuffer.duration;
-    const weak = rms < VOICE_GATE_MIN_RMS && peak < VOICE_GATE_MIN_PEAK;
+    const overallRms = Math.sqrt(sumSq / len);
+    const sr = audioBuffer.sampleRate;
+    const win = Math.max(Math.floor(sr * 0.1), 400);
+    const hop = Math.max(Math.floor(win / 2), 200);
+    const windowRms = [];
+    for (let start = 0; start + win <= len; start += hop) {
+      let ws = 0;
+      for (let i = start; i < start + win; i++) {
+        const v = mono[i];
+        ws += v * v;
+      }
+      windowRms.push(Math.sqrt(ws / win));
+    }
+    if (windowRms.length === 0) {
+      windowRms.push(overallRms);
+    }
+    const maxWin = Math.max(...windowRms);
+    const meanWin = windowRms.reduce((a, b) => a + b, 0) / windowRms.length;
+    const modulation = maxWin / (meanWin + 1e-9);
+    const passes =
+      peak >= VOICE_GATE_MIN_PEAK &&
+      maxWin >= VOICE_GATE_MIN_WINDOW_RMS &&
+      (modulation >= VOICE_GATE_MIN_MODULATION || peak >= VOICE_LOUD_PEAK_BYPASS);
     return {
-      ok: !weak,
-      rms,
+      ok: passes,
+      rms: overallRms,
       peak,
-      durationSec,
+      durationSec: audioBuffer.duration,
+      maxWindowRms: maxWin,
+      modulation,
     };
   } catch (e) {
     console.warn("[VOICE] decodeAudioData failed, sending anyway", e);
